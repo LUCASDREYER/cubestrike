@@ -22,6 +22,10 @@ export const BUY_ITEMS = [
 
 export const ECON = { start: 800, win: 3250, loss: 1400, cap: 16000 };
 
+// Bunny hopping: re-jumping within `window` seconds of landing multiplies move
+// speed by `gain`, up to `cap`; staying grounded longer bleeds the bonus off.
+export const BHOP = { gain: 1.12, cap: 1.9, window: 0.25 };
+
 export const MATCH_WIN_ROUNDS = 8;
 export const BUY_TIME = 6;
 export const ROUND_TIME = 90;

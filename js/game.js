@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  WEAPONS, BUY_ITEMS, ECON, MATCH_WIN_ROUNDS, BUY_TIME, ROUND_TIME,
+  WEAPONS, BUY_ITEMS, ECON, BHOP, MATCH_WIN_ROUNDS, BUY_TIME, ROUND_TIME,
   MAP_BOXES, WAYPOINTS, WAY_EDGES, PLAYER_SPAWN, BOT_SPAWNS, BOT_NAMES,
 } from './config.js';
 import { sfx } from './audio.js';
@@ -11,7 +11,7 @@ const canvas = $('game');
 const els = {
   hud: $('hud'), scoreCT: $('scoreCT'), scoreT: $('scoreT'), timer: $('timer'),
   roundLabel: $('roundLabel'), enemies: $('enemies'), killfeed: $('killfeed'),
-  hitmarker: $('hitmarker'), banner: $('banner'), bannerMain: $('bannerMain'),
+  hitmarker: $('hitmarker'), speedo: $('speedo'), banner: $('banner'), bannerMain: $('bannerMain'),
   bannerSub: $('bannerSub'), hp: $('hp'), armor: $('armor'), money: $('money'),
   weapon: $('weapon'), ammo: $('ammo'), buymenu: $('buymenu'),
   scoreboard: $('scoreboard'), vignette: $('vignette'), scope: $('scope'),
@@ -216,7 +216,7 @@ const EYE = 1.62;
 const player = {
   pos: new THREE.Vector3(PLAYER_SPAWN.x, 0, PLAYER_SPAWN.z),
   vy: 0, yaw: PLAYER_SPAWN.yaw, pitch: 0, grounded: true,
-  hp: 100, armor: 0, money: ECON.start, alive: true,
+  hp: 100, armor: 0, money: ECON.start, alive: true, speedMult: 1,
   load: { primary: null, secondary: null, knife: { id: 'knife' } },
   cur: 'secondary',
   cooldown: 0, reloading: 0, switchT: 0, zoomed: false,
@@ -288,14 +288,20 @@ function resolveVertical() {
 const keys = {};
 let mouseDown = false;
 let deathT = 0;
+let groundTime = 0;
+let bobPhase = 0;
+let bobAmp = 0;
+let vmPitchKick = 0;
 
 function updatePlayer(dt) {
   const canMove = state === 'live' || state === 'over';
+  let f = 0;
+  let r = 0;
   if (player.alive && canMove) {
-    const f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
-    const r = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
+    r = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
     const len = Math.hypot(f, r) || 1;
-    const speed = curSpec().melee ? 7.6 : 6.8;
+    const speed = (curSpec().melee ? 7.6 : 6.8) * player.speedMult;
     const sy = Math.sin(player.yaw);
     const cy = Math.cos(player.yaw);
     const dx = (f / len) * -sy + (r / len) * cy;
@@ -305,6 +311,8 @@ function updatePlayer(dt) {
     player.pos.z += dz * speed * dt;
     resolveAxis('z');
     if (keys.Space && player.grounded) {
+      // bhop: a hop chained inside the window banks speed; holding Space re-hops on landing
+      if (groundTime < BHOP.window) player.speedMult = Math.min(BHOP.cap, player.speedMult * BHOP.gain);
       player.vy = 5.4;
       player.grounded = false;
     }
@@ -318,6 +326,8 @@ function updatePlayer(dt) {
     player.vy = 0;
     player.grounded = true;
   }
+  groundTime = player.grounded ? groundTime + dt : 0;
+  if (groundTime > BHOP.window) player.speedMult = Math.max(1, player.speedMult - dt * 2.5);
 
   // weapon timers
   player.cooldown = Math.max(0, player.cooldown - dt);
@@ -337,10 +347,27 @@ function updatePlayer(dt) {
 
   if (mouseDown && player.alive && state === 'live' && curSpec().auto) fire();
 
+  // walk wobble: bob phase advances with footsteps, amplitude eases in/out
+  const isMoving = player.alive && (f !== 0 || r !== 0);
+  bobAmp += ((isMoving && player.grounded ? 1 : 0) - bobAmp) * Math.min(1, dt * 8);
+  if (isMoving && player.grounded) bobPhase += dt * 6.5 * player.speedMult;
+
   // camera
   if (player.alive) {
-    camera.position.set(player.pos.x, player.pos.y + EYE, player.pos.z);
-    camera.rotation.set(player.pitch, player.yaw, 0);
+    camera.position.set(
+      player.pos.x,
+      player.pos.y + EYE + Math.sin(bobPhase * 2) * 0.035 * bobAmp,
+      player.pos.z,
+    );
+    camera.rotation.set(player.pitch, player.yaw, Math.sin(bobPhase) * 0.005 * bobAmp);
+    if (!player.zoomed) {
+      // subtle fov stretch sells bhop speed
+      const tf = 74 + (player.speedMult - 1) * 10;
+      if (Math.abs(camera.fov - tf) > 0.05) {
+        camera.fov += (tf - camera.fov) * Math.min(1, dt * 8);
+        camera.updateProjectionMatrix();
+      }
+    }
   } else {
     deathT = Math.min(1, deathT + dt * 2.2);
     camera.position.set(player.pos.x, player.pos.y + EYE - deathT * 1.1, player.pos.z);
@@ -349,11 +376,25 @@ function updatePlayer(dt) {
 
   // decay effects
   vmKick = Math.max(0, vmKick - dt * 0.6);
+  vmPitchKick *= Math.pow(0.002, dt);
   muzzleLight.intensity *= Math.pow(0.0001, dt);
   if (muzzleLight.intensity < 0.05) muzzleLight.intensity = 0;
   vignetteFlash = Math.max(0, vignetteFlash - dt * 1.8);
   if (player.alive) els.vignette.style.opacity = vignetteFlash;
-  if (vmGroup.visible) vmGroup.position.z = vmBaseZ + vmKick;
+
+  // viewmodel: recoil kick + walk sway
+  if (vmGroup.visible) {
+    vmGroup.position.set(
+      0.3 + Math.sin(bobPhase) * 0.015 * bobAmp,
+      -0.3 - Math.abs(Math.sin(bobPhase * 2)) * 0.012 * bobAmp + (player.grounded ? 0 : 0.012),
+      vmBaseZ + vmKick,
+    );
+    vmGroup.rotation.set(vmPitchKick, 0, Math.sin(bobPhase) * 0.03 * bobAmp);
+  }
+
+  // bhop speedometer
+  setText(els.speedo, `≫ ${player.speedMult.toFixed(2)}×`);
+  els.speedo.style.opacity = player.speedMult > 1.02 ? 0.9 : 0;
 }
 
 let vignetteFlash = 0;
@@ -510,6 +551,7 @@ function fire() {
     player.cooldown = 60 / spec.rpm;
     sfx.knife();
     vmKick = 0.1;
+    vmPitchKick = -0.35;
     const dir = camera.getWorldDirection(_v2).clone();
     const origin = camera.position;
     const hit = hitScan(origin, dir, 2.6);
@@ -528,6 +570,7 @@ function fire() {
   player.cooldown = 60 / spec.rpm;
   sfx.shot(inst.id);
   vmKick = 0.07;
+  vmPitchKick = Math.min(0.3, vmPitchKick + 0.05 + spec.recoil * 0.03);
   muzzleLight.color.setHex(spec.energy);
   muzzleLight.intensity = 2.6;
   const fwd = camera.getWorldDirection(_v2).clone();
@@ -879,6 +922,7 @@ function startRound() {
   player.yaw = PLAYER_SPAWN.yaw;
   player.pitch = 0;
   player.vy = 0;
+  player.speedMult = 1;
   player.hp = 100;
   player.alive = true;
   player.cooldown = 0;

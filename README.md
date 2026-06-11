@@ -9,6 +9,8 @@ No engine download, no install, no build step — one HTML file, a few JS module
 ## What's in the box
 
 - **Pointer-lock FPS movement** — WASD, jump, real AABB collision, you can hop up onto the low crates
+- **Bunny hopping** — keep moving and hold Space: each hop chained within 0.25s of landing banks speed, up to 1.9× (a speedometer fades in under the crosshair). Airborne spread triples, so it's speed *or* accuracy
+- **Game feel** — walk bob with camera sway, viewmodel wobble, per-shot visual recoil (muzzle rise), and a subtle FOV stretch at bhop speed
 - **A dust-colored blockout map** — mid doors, two side lanes, crates, and long sightlines
 - **5 weapons + knife** — pistol, hand cannon, SMG, auto rifle, and a bolt sniper with a working scope (RMB)
 - **Exotic gun skins** — every weapon wears a Destiny-inspired (but original) exotic frame with glowing energy accents; tracers and muzzle flash match each weapon's energy color
@@ -40,7 +42,7 @@ There are also console cheats in the spirit of `sv_cheats 1` — open devtools a
 | WASD | Move |
 | Mouse | Aim / LMB shoot |
 | RMB | Scope (sniper) |
-| Space | Jump |
+| Space | Jump (hold to bunny-hop) |
 | R | Reload |
 | B | Buy menu (during buy phase) |
 | 1 / 2 / 3 | Primary / pistol / knife |
