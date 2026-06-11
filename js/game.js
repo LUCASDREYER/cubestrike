@@ -225,7 +225,7 @@ const player = {
   hp: 100, armor: 0, money: ECON.start, alive: true, speedMult: 1,
   load: { primary: null, secondary: null, knife: { id: 'knife' } },
   cur: 'secondary',
-  cooldown: 0, reloading: 0, switchT: 0, zoomed: false,
+  cooldown: 0, reloading: 0, switchT: 0, zoomed: false, sprayI: 0, sprayCool: 0,
   kills: 0, deaths: 0, shots: 0, hits: 0,
 };
 
@@ -247,6 +247,7 @@ function switchSlot(slot) {
   player.cur = slot;
   player.reloading = 0;
   player.switchT = 0.35;
+  player.sprayI = 0;
   setZoom(false);
   buildViewModel(curInst().id);
   updateHUD();
@@ -341,6 +342,8 @@ function updatePlayer(dt) {
   // weapon timers
   player.cooldown = Math.max(0, player.cooldown - dt);
   player.switchT = Math.max(0, player.switchT - dt);
+  player.sprayCool -= dt;
+  if (player.sprayCool <= 0) player.sprayI = 0; // pause in fire resets the spray pattern
   if (player.reloading > 0) {
     player.reloading -= dt;
     if (player.reloading <= 0) {
@@ -590,16 +593,20 @@ function fire() {
   const fwd = camera.getWorldDirection(_v2).clone();
   muzzleLight.position.copy(camera.position).addScaledVector(fwd, 1.2);
 
-  // spread grows when moving / airborne, shrinks scoped
-  let sp = spec.spread;
+  // no bloom: a still, grounded shot goes exactly where the crosshair points.
+  // moving, jumping, and noscoping cost accuracy — that's the anti-laser tax.
+  let sp = 0;
   const moving = keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD;
-  if (moving) sp *= 2.1;
-  if (!player.grounded) sp *= 3;
-  if (player.zoomed) sp *= 0.06;
+  if (moving) sp += spec.spread * 2.2;
+  if (!player.grounded) sp += spec.spread * 4;
+  if (inst.id === 'sniper' && !player.zoomed) sp += spec.spread * 3;
+  if (player.zoomed) sp *= 0.12;
   const dir = fwd.clone();
-  dir.x += (Math.random() - 0.5) * 2 * sp;
-  dir.y += (Math.random() - 0.5) * 2 * sp;
-  dir.z += (Math.random() - 0.5) * 2 * sp;
+  if (sp > 0) {
+    dir.x += (Math.random() - 0.5) * 2 * sp;
+    dir.y += (Math.random() - 0.5) * 2 * sp;
+    dir.z += (Math.random() - 0.5) * 2 * sp;
+  }
   dir.normalize();
 
   const origin = camera.position;
@@ -618,9 +625,12 @@ function fire() {
     spawnParticles(end, 0xcbb088, 5, 1.8);
   }
 
-  // recoil
-  player.pitch = Math.min(1.55, player.pitch + spec.recoil * 0.012);
-  player.yaw += (Math.random() - 0.5) * spec.recoil * 0.004;
+  // deterministic spray: the climb steepens through a burst and the muzzle
+  // sways in a fixed per-weapon pattern — learnable and controllable, no RNG
+  const i = player.sprayI++;
+  player.sprayCool = 60 / spec.rpm + 0.22;
+  player.pitch = Math.min(1.55, player.pitch + spec.recoil * 0.012 * (1 + Math.min(i, 12) * 0.07));
+  player.yaw += Math.sin(i * 0.8) * spec.recoil * 0.005;
 
   updateHUD();
 }
@@ -653,6 +663,7 @@ function startReload() {
   const spec = WEAPONS[inst.id];
   if (spec.melee || player.reloading > 0 || inst.mag >= spec.mag || inst.reserve <= 0) return;
   player.reloading = spec.reload;
+  player.sprayI = 0;
   setZoom(false);
   sfx.reload();
   updateHUD();
@@ -978,6 +989,7 @@ function startRound() {
   player.alive = true;
   player.cooldown = 0;
   player.reloading = 0;
+  player.sprayI = 0;
   deathT = 0;
   els.vignette.classList.remove('dead');
   els.vignette.style.opacity = 0;

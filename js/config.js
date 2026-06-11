@@ -2,13 +2,15 @@
 
 // `skin` + `energy` drive the Destiny-style exotic viewmodels: skin is the name
 // shown in the HUD, energy tints the glow accents, tracers, and muzzle flash.
+// `spread` is movement/air inaccuracy only (radians) — still, grounded shots
+// have zero bloom; `recoil` scales the deterministic spray climb + sway.
 export const WEAPONS = {
-  knife:  { name: 'Knife',      skin: 'Severance Edge',     energy: 0x4dff88, slot: 'knife',     price: 0,    dmg: 55,  rpm: 150, mag: Infinity, reserve: Infinity, spread: 0,     reload: 0,   auto: false, melee: true,  recoil: 0,   killAward: 1500 },
-  pistol: { name: 'P9 Sidearm', skin: 'Pale Vestige',       energy: 0xeef2ff, slot: 'secondary', price: 0,    dmg: 26,  rpm: 360, mag: 12, reserve: 36,  spread: 0.014, reload: 1.9, auto: false, melee: false, recoil: 0.5, killAward: 300 },
-  deagle: { name: 'Big Iron',   skin: 'Sundown Verdict',    energy: 0xff7a1a, slot: 'secondary', price: 650,  dmg: 54,  rpm: 240, mag: 7,  reserve: 35,  spread: 0.020, reload: 2.2, auto: false, melee: false, recoil: 1.6, killAward: 300 },
-  smg:    { name: 'Wasp SMG',   skin: 'Static Hymn',        energy: 0x35c8ff, slot: 'primary',   price: 1250, dmg: 17,  rpm: 780, mag: 25, reserve: 100, spread: 0.030, reload: 2.4, auto: true,  melee: false, recoil: 0.4, killAward: 600 },
-  rifle:  { name: 'Bulldog AR', skin: 'Void Doctrine',      energy: 0x9a4dff, slot: 'primary',   price: 2700, dmg: 34,  rpm: 600, mag: 30, reserve: 90,  spread: 0.022, reload: 2.5, auto: true,  melee: false, recoil: 0.7, killAward: 300 },
-  sniper: { name: 'Long Tom',   skin: "Stargazer's Lament", energy: 0x7ad8ff, slot: 'primary',   price: 4750, dmg: 115, rpm: 41,  mag: 5,  reserve: 30,  spread: 0.050, reload: 3.2, auto: false, melee: false, recoil: 2.4, killAward: 100 },
+  knife:  { name: 'Knife',      skin: 'Severance Edge',     energy: 0x4dff88, slot: 'knife',     price: 0,    dmg: 55,  rpm: 150, mag: Infinity, reserve: Infinity, spread: 0,     reload: 0,   auto: false, melee: true,  recoil: 0,    killAward: 1500 },
+  pistol: { name: 'P9 Sidearm', skin: 'Pale Vestige',       energy: 0xeef2ff, slot: 'secondary', price: 0,    dmg: 26,  rpm: 360, mag: 12, reserve: 36,  spread: 0.014, reload: 1.9, auto: false, melee: false, recoil: 0.55, killAward: 300 },
+  deagle: { name: 'Big Iron',   skin: 'Sundown Verdict',    energy: 0xff7a1a, slot: 'secondary', price: 650,  dmg: 54,  rpm: 240, mag: 7,  reserve: 35,  spread: 0.026, reload: 2.2, auto: false, melee: false, recoil: 2.0,  killAward: 300 },
+  smg:    { name: 'Wasp SMG',   skin: 'Static Hymn',        energy: 0x35c8ff, slot: 'primary',   price: 1250, dmg: 17,  rpm: 780, mag: 25, reserve: 100, spread: 0.018, reload: 2.4, auto: true,  melee: false, recoil: 0.55, killAward: 600 },
+  rifle:  { name: 'Bulldog AR', skin: 'Void Doctrine',      energy: 0x9a4dff, slot: 'primary',   price: 2700, dmg: 34,  rpm: 600, mag: 30, reserve: 90,  spread: 0.022, reload: 2.5, auto: true,  melee: false, recoil: 0.85, killAward: 300 },
+  sniper: { name: 'Long Tom',   skin: "Stargazer's Lament", energy: 0x7ad8ff, slot: 'primary',   price: 4750, dmg: 115, rpm: 41,  mag: 5,  reserve: 30,  spread: 0.050, reload: 3.2, auto: false, melee: false, recoil: 2.4,  killAward: 100 },
 };
 
 // Buy menu rows, in key order (1..n). 'armor' is special-cased.
