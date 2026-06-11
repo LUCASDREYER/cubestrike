@@ -109,6 +109,7 @@ body { font-family: Verdana, Geneva, sans-serif; user-select: none; }
   width: 18px; height: 18px; line-height: 18px; text-align: center; flex: none;
   border: 1px solid var(--hud-dim); color: var(--hud); font-size: 11px; font-weight: bold;
 }
+.buy-item .name em { font-style: italic; color: var(--hud-dim); font-size: 11px; }
 .buy-item .price { margin-left: auto; color: var(--hud); }
 .buy-item.dim { opacity: 0.35; }
 .buy-item.owned .name::after { content: " ✓"; color: var(--hud); }

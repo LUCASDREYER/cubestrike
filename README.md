@@ -11,12 +11,27 @@ No engine download, no install, no build step — one HTML file, a few JS module
 - **Pointer-lock FPS movement** — WASD, jump, real AABB collision, you can hop up onto the low crates
 - **A dust-colored blockout map** — mid doors, two side lanes, crates, and long sightlines
 - **5 weapons + knife** — pistol, hand cannon, SMG, auto rifle, and a bolt sniper with a working scope (RMB)
+- **Exotic gun skins** — every weapon wears a Destiny-inspired (but original) exotic frame with glowing energy accents; tracers and muzzle flash match each weapon's energy color
 - **The CS economy** — $800 pistol round, kill rewards ($300 rifle / $600 SMG / $1500 knife / $100 sniper), win and loss bonuses, $16,000 cap
 - **Buy menu** — press the number keys during the buy phase, just like 1.6
 - **Round system** — first to 8 rounds wins the match; survive and you keep your guns, die and you're back on pistol
 - **Bots** — 5 terrorists with waypoint navigation, line-of-sight checks, reaction time, and aim that gets worse with distance
 - **Headshots** — 4× damage, separate head hitbox
 - **Synthesized audio** — every sound is generated with WebAudio at runtime; there are zero asset files in this repo
+
+## The armory
+
+| Weapon | Exotic skin | Energy |
+|---|---|---|
+| P9 Sidearm | Pale Vestige | Kinetic (white) |
+| Big Iron | Sundown Verdict | Solar (orange, gold filigree) |
+| Wasp SMG | Static Hymn | Arc (electric blue coils) |
+| Bulldog AR | Void Doctrine | Void (purple core) |
+| Long Tom | Stargazer's Lament | Stasis (ice-blue coil rail) |
+| Knife | Severance Edge | Strand (green energy blade) |
+
+There are also console cheats in the spirit of `sv_cheats 1` — open devtools and try
+`impulse101()` (max money) or `cs_give('rifle')`.
 
 ## Controls
 

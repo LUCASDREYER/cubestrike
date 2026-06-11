@@ -393,40 +393,99 @@ camera.add(vmGroup);
 let vmKick = 0;
 const vmBaseZ = -0.55;
 
-function vmBox(g, w, h, d, x, y, z, color) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color }));
+function vmMat(color, glow = 0) {
+  const m = new THREE.MeshLambertMaterial({ color });
+  if (glow) {
+    m.emissive.setHex(color);
+    m.emissiveIntensity = glow;
+    m.color.setHex(0x15151a);
+  }
+  return m;
+}
+
+function vmBox(g, w, h, d, x, y, z, color, glow = 0) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), vmMat(color, glow));
   m.position.set(x, y, z);
   g.add(m);
   return m;
 }
 
+function vmCyl(g, r, len, x, y, z, color, { glow = 0, seg = 12, axis = 'z' } = {}) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, seg), vmMat(color, glow));
+  if (axis === 'z') m.rotation.x = Math.PI / 2;
+  else if (axis === 'x') m.rotation.z = Math.PI / 2;
+  m.position.set(x, y, z);
+  g.add(m);
+  return m;
+}
+
+const GUNMETAL = 0x23252b;
+const PLATE = 0x3a3d45;
+const GOLD = 0xc9a227;
+const IVORY = 0xd8d2c2;
+
+// Exotic skins: angular sci-fi frames with emissive energy accents per weapon.
 function buildViewModel(id) {
   vmGroup.clear();
   vmGroup.position.set(0.3, -0.3, vmBaseZ);
-  const dark = 0x2a2a26;
-  const steel = 0x44443c;
-  const wood = 0x6e4f2a;
+  const energy = WEAPONS[id].energy;
   if (id === 'knife') {
-    vmBox(vmGroup, 0.035, 0.05, 0.22, 0, -0.02, 0.1, dark);          // handle
-    vmBox(vmGroup, 0.012, 0.07, 0.3, 0, 0.01, -0.16, 0xb9b9ad);      // blade
+    // Severance Edge — strand energy blade
+    vmBox(vmGroup, 0.035, 0.05, 0.2, 0, -0.02, 0.1, GUNMETAL);
+    vmBox(vmGroup, 0.07, 0.018, 0.04, 0, 0.005, -0.005, PLATE);            // guard
+    vmBox(vmGroup, 0.014, 0.022, 0.3, 0, 0.028, -0.17, PLATE);             // spine
+    vmBox(vmGroup, 0.01, 0.05, 0.3, 0, -0.005, -0.17, energy, 1.4);        // blade
   } else if (id === 'pistol') {
-    vmBox(vmGroup, 0.07, 0.09, 0.26, 0, 0.02, -0.05, dark);
-    vmBox(vmGroup, 0.06, 0.13, 0.07, 0, -0.07, 0.06, steel);
+    // Pale Vestige — kinetic sidearm
+    vmBox(vmGroup, 0.07, 0.09, 0.28, 0, 0.02, -0.06, GUNMETAL);
+    vmBox(vmGroup, 0.075, 0.035, 0.3, 0, 0.085, -0.07, PLATE);             // slide
+    vmBox(vmGroup, 0.078, 0.01, 0.18, 0, 0.062, -0.08, energy, 1.2);       // energy slit
+    vmCyl(vmGroup, 0.015, 0.05, 0, 0.06, -0.235, PLATE);                   // barrel
+    vmBox(vmGroup, 0.06, 0.13, 0.07, 0, -0.07, 0.05, IVORY);               // grip
   } else if (id === 'deagle') {
-    vmBox(vmGroup, 0.09, 0.11, 0.34, 0, 0.02, -0.08, steel);
-    vmBox(vmGroup, 0.07, 0.14, 0.08, 0, -0.08, 0.06, dark);
+    // Sundown Verdict — solar hand cannon
+    vmBox(vmGroup, 0.07, 0.08, 0.32, 0, 0.035, -0.1, GUNMETAL);
+    vmCyl(vmGroup, 0.026, 0.3, 0, 0.075, -0.16, PLATE, { seg: 8 });        // octagonal barrel
+    vmCyl(vmGroup, 0.03, 0.02, 0, 0.075, -0.305, energy, { glow: 1.5 });   // muzzle ring
+    vmCyl(vmGroup, 0.05, 0.055, 0, 0, 0, GUNMETAL, { axis: 'x' });         // cylinder drum
+    vmCyl(vmGroup, 0.018, 0.06, 0, 0, 0, energy, { glow: 1.5, axis: 'x' }); // glowing chambers
+    vmBox(vmGroup, 0.012, 0.05, 0.2, 0.042, 0.07, -0.12, GOLD);            // gold filigree
+    vmBox(vmGroup, 0.012, 0.05, 0.2, -0.042, 0.07, -0.12, GOLD);
+    vmBox(vmGroup, 0.02, 0.045, 0.02, 0, 0.09, 0.06, GOLD);                // hammer
+    vmBox(vmGroup, 0.055, 0.14, 0.07, 0, -0.085, 0.07, IVORY);             // grip
   } else if (id === 'smg') {
-    vmBox(vmGroup, 0.08, 0.1, 0.5, 0, 0, -0.15, dark);
-    vmBox(vmGroup, 0.05, 0.18, 0.06, 0, -0.13, -0.05, steel);
-    vmBox(vmGroup, 0.04, 0.04, 0.16, 0, 0.02, -0.46, steel);
+    // Static Hymn — arc SMG
+    vmBox(vmGroup, 0.075, 0.1, 0.42, 0, 0, -0.12, GUNMETAL);
+    vmBox(vmGroup, 0.082, 0.05, 0.2, 0, 0.04, -0.32, PLATE);               // shroud
+    vmCyl(vmGroup, 0.02, 0.18, 0.05, 0.04, -0.32, energy, { glow: 1.2 });  // arc coils
+    vmCyl(vmGroup, 0.02, 0.18, -0.05, 0.04, -0.32, energy, { glow: 1.2 });
+    vmCyl(vmGroup, 0.014, 0.08, 0, 0.04, -0.45, PLATE);                    // barrel
+    vmBox(vmGroup, 0.078, 0.012, 0.3, 0, -0.048, -0.15, energy, 1.0);      // belly strip
+    vmBox(vmGroup, 0.05, 0.16, 0.06, 0, -0.12, -0.02, PLATE);              // mag
+    vmBox(vmGroup, 0.05, 0.07, 0.12, 0, -0.01, 0.12, GUNMETAL);            // stock
   } else if (id === 'rifle') {
-    vmBox(vmGroup, 0.08, 0.11, 0.62, 0, 0, -0.2, wood);
-    vmBox(vmGroup, 0.05, 0.2, 0.08, 0.0, -0.14, -0.08, steel);
-    vmBox(vmGroup, 0.035, 0.035, 0.3, 0, 0.025, -0.6, dark);
+    // Void Doctrine — void auto rifle
+    vmBox(vmGroup, 0.08, 0.1, 0.55, 0, 0, -0.18, GUNMETAL);
+    vmBox(vmGroup, 0.06, 0.04, 0.42, 0, 0.075, -0.18, PLATE);              // top rail
+    vmBox(vmGroup, 0.085, 0.045, 0.09, 0, 0.01, -0.02, energy, 1.3);       // void core
+    vmCyl(vmGroup, 0.018, 0.26, 0, 0.02, -0.57, PLATE);                    // barrel
+    vmBox(vmGroup, 0.05, 0.05, 0.06, 0, 0.02, -0.71, GUNMETAL);            // muzzle brake
+    vmBox(vmGroup, 0.052, 0.012, 0.06, 0, 0.048, -0.71, energy, 1.3);
+    vmBox(vmGroup, 0.083, 0.012, 0.16, 0, 0.038, -0.32, energy, 0.9);      // vent slit
+    vmBox(vmGroup, 0.05, 0.17, 0.07, 0, -0.125, -0.06, PLATE).rotation.x = 0.25; // canted mag
+    vmBox(vmGroup, 0.045, 0.06, 0.1, 0, -0.07, -0.34, GUNMETAL);           // foregrip
   } else if (id === 'sniper') {
-    vmBox(vmGroup, 0.08, 0.11, 0.78, 0, 0, -0.26, 0x3c4a36);
-    vmBox(vmGroup, 0.05, 0.07, 0.22, 0, 0.085, -0.2, dark);          // scope
-    vmBox(vmGroup, 0.03, 0.03, 0.34, 0, 0.02, -0.78, dark);
+    // Stargazer's Lament — stasis rail sniper
+    vmBox(vmGroup, 0.08, 0.1, 0.6, 0, 0, -0.18, GUNMETAL);
+    vmCyl(vmGroup, 0.016, 0.5, 0, 0.02, -0.68, PLATE);                     // rail barrel
+    vmCyl(vmGroup, 0.034, 0.016, 0, 0.02, -0.52, energy, { glow: 1.4 });   // coil rings
+    vmCyl(vmGroup, 0.034, 0.016, 0, 0.02, -0.66, energy, { glow: 1.4 });
+    vmCyl(vmGroup, 0.034, 0.016, 0, 0.02, -0.8, energy, { glow: 1.4 });
+    vmCyl(vmGroup, 0.036, 0.24, 0, 0.1, -0.16, PLATE);                     // scope
+    vmCyl(vmGroup, 0.03, 0.012, 0, 0.1, -0.038, energy, { glow: 1.5 });    // lens
+    vmBox(vmGroup, 0.012, 0.07, 0.1, 0.05, -0.02, 0.06, energy, 0.8);      // crystal fins
+    vmBox(vmGroup, 0.012, 0.07, 0.1, -0.05, -0.02, 0.06, energy, 0.8);
+    vmBox(vmGroup, 0.05, 0.09, 0.14, 0, -0.03, 0.1, PLATE);                // stock
   }
   vmGroup.visible = true;
 }
@@ -469,6 +528,7 @@ function fire() {
   player.cooldown = 60 / spec.rpm;
   sfx.shot(inst.id);
   vmKick = 0.07;
+  muzzleLight.color.setHex(spec.energy);
   muzzleLight.intensity = 2.6;
   const fwd = camera.getWorldDirection(_v2).clone();
   muzzleLight.position.copy(camera.position).addScaledVector(fwd, 1.2);
@@ -492,7 +552,7 @@ function fire() {
   const tipStart = origin.clone().addScaledVector(fwd, 1.0).add(
     new THREE.Vector3(Math.cos(player.yaw) * 0.22, -0.18, -Math.sin(player.yaw) * 0.22),
   );
-  spawnTracer(tipStart, end);
+  spawnTracer(tipStart, end, spec.energy);
 
   if (hit && hit.bot) {
     hurtBot(hit.bot, spec.dmg * (hit.head ? 4 : 1), hit.head, inst.id);
@@ -905,7 +965,7 @@ function updateHUD() {
   setText(els.enemies, `ENEMIES ${alive}/${bots.length || 5}`);
   const inst = curInst();
   const spec = WEAPONS[inst.id];
-  setText(els.weapon, spec.name.toUpperCase());
+  setText(els.weapon, spec.skin.toUpperCase());
   setText(els.ammo, spec.melee ? '—' : `${inst.mag} / ${inst.reserve}`);
   els.ammo.classList.toggle('reloading', player.reloading > 0);
 }
@@ -953,8 +1013,9 @@ function renderBuyMenu() {
       ? player.armor >= 100
       : (player.load[WEAPONS[item.id].slot]?.id === item.id);
     const afford = player.money >= spec.price;
+    const skin = item.id === 'armor' ? '' : ` <em>${WEAPONS[item.id].skin}</em>`;
     return `<div class="buy-item ${afford ? '' : 'dim'} ${owned ? 'owned' : ''}">
-      <span class="key">${i + 1}</span><span class="name">${spec.name}</span>
+      <span class="key">${i + 1}</span><span class="name">${spec.name}${skin}</span>
       <span class="price">$${spec.price}</span></div>`;
   }).join('');
   els.buymenu.innerHTML = `<h2>BUY EQUIPMENT</h2>${rows}
@@ -1112,6 +1173,19 @@ function loop(now) {
   updateTracers(dt);
   renderer.render(scene, camera);
 }
+
+// Console cheats, in the spirit of sv_cheats 1. Open devtools and help yourself.
+window.impulse101 = () => {
+  player.money = ECON.cap;
+  updateHUD();
+  return `$${player.money}`;
+};
+window.cs_give = (id) => {
+  if (!WEAPONS[id] || id === 'knife') return `usage: cs_give('${Object.keys(WEAPONS).filter((k) => k !== 'knife').join("' | '")}')`;
+  giveWeapon(id);
+  updateHUD();
+  return WEAPONS[id].skin;
+};
 
 buildViewModel('pistol');
 resetLoadout();
