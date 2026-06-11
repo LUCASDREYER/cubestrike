@@ -75,14 +75,18 @@ function speckleTexture(base, speck, repeat) {
 }
 
 const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(110, 80),
-  new THREE.MeshLambertMaterial({ map: speckleTexture('#a18a5c', '#6e5c39', 18) }),
+  new THREE.PlaneGeometry(50, 70),
+  new THREE.MeshLambertMaterial({ map: speckleTexture('#a18a5c', '#6e5c39', 10) }),
 );
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
 
-const KIND_COLOR = { wall: 0xb39b72, pillar: 0x9c8259, crate: 0x8a6a3f, crateLow: 0x7c7245 };
+const KIND_COLOR = {
+  wall: 0xb39b72, pillar: 0x9c8259, crate: 0x8a6a3f, crateLow: 0x7c7245,
+  // speedball inflatable bunkers
+  bunkerRed: 0xd03a2f, bunkerBlue: 0x2f6fd0, bunkerYellow: 0xe0b33a,
+};
 const WALLS = []; // { min:Vector3, max:Vector3 }
 
 for (const [x, z, w, d, h, y, kind] of MAP_BOXES) {
