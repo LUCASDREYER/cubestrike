@@ -701,8 +701,12 @@ function fire() {
   }
 
   if (inst.mag <= 0) {
-    sfx.dry();
-    player.cooldown = 0.25;
+    // auto-reload instead of dry-firing when there's ammo left
+    if (inst.reserve > 0) startReload();
+    else {
+      sfx.dry();
+      player.cooldown = 0.25;
+    }
     return;
   }
 
@@ -755,6 +759,8 @@ function fire() {
   player.sprayCool = 60 / spec.rpm + 0.22;
   player.pitch = Math.min(1.55, player.pitch + spec.recoil * 0.012 * (1 + Math.min(i, 12) * 0.07));
   player.yaw += Math.sin(i * 0.8) * spec.recoil * 0.005;
+
+  if (inst.mag === 0 && inst.reserve > 0) startReload(); // mag ran dry mid-fight
 
   updateHUD();
 }
