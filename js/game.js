@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   WEAPONS, BUY_ITEMS, ECON, BHOP, MATCH_WIN_ROUNDS, BUY_TIME, ROUND_TIME,
-  MAP_BOXES, WAYPOINTS, WAY_EDGES, PLAYER_SPAWN, BOT_SPAWNS, BOT_NAMES,
+  MAP_BOXES, WAYPOINTS, WAY_EDGES, PLAYER_SPAWN, BOT_SPAWNS, BOT_NAMES, CT_BOT_NAMES,
 } from './config.js';
 import { sfx } from './audio.js';
 
@@ -18,6 +18,8 @@ const els = {
   overlay: $('overlay'), overlayMsg: $('overlayMsg'),
   matchOverlay: $('matchOverlay'), matchResult: $('matchResult'),
   matchScore: $('matchScore'), matchStats: $('matchStats'), againBtn: $('againBtn'),
+  spectateBtn: $('spectateBtn'), spectateBar: $('spectateBar'),
+  camBtn: $('camBtn'), exitBtn: $('exitBtn'),
 };
 
 // ---------------------------------------------------------------- renderer / scene
@@ -75,14 +77,18 @@ function speckleTexture(base, speck, repeat) {
 }
 
 const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(110, 80),
-  new THREE.MeshLambertMaterial({ map: speckleTexture('#a18a5c', '#6e5c39', 18) }),
+  new THREE.PlaneGeometry(50, 70),
+  new THREE.MeshLambertMaterial({ map: speckleTexture('#a18a5c', '#6e5c39', 10) }),
 );
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
 
-const KIND_COLOR = { wall: 0xb39b72, pillar: 0x9c8259, crate: 0x8a6a3f, crateLow: 0x7c7245 };
+const KIND_COLOR = {
+  wall: 0xb39b72, pillar: 0x9c8259, crate: 0x8a6a3f, crateLow: 0x7c7245,
+  // speedball inflatable bunkers
+  bunkerRed: 0xd03a2f, bunkerBlue: 0x2f6fd0, bunkerYellow: 0xe0b33a,
+};
 const WALLS = []; // { min:Vector3, max:Vector3 }
 
 for (const [x, z, w, d, h, y, kind] of MAP_BOXES) {
@@ -714,10 +720,11 @@ const botGeo = {
 };
 
 class Bot {
-  constructor(name, x, z) {
+  constructor(name, x, z, team = 'T') {
     this.name = name;
+    this.team = team;
     this.pos = new THREE.Vector3(x, 0, z);
-    this.yaw = Math.atan2(-(PLAYER_SPAWN.x - x), -(PLAYER_SPAWN.z - z));
+    this.yaw = Math.atan2(x, z); // face arena center
     this.hp = 100;
     this.alive = true;
     this.alert = false;
@@ -733,10 +740,10 @@ class Bot {
     this.walkT = Math.random() * 6;
 
     const g = new THREE.Group();
-    this.torsoMat = new THREE.MeshLambertMaterial({ color: 0x8f7a4e });
+    this.torsoMat = new THREE.MeshLambertMaterial({ color: team === 'CT' ? 0x5d6e8e : 0x8f7a4e });
     const legMat = new THREE.MeshLambertMaterial({ color: 0x4a4438 });
     const headMat = new THREE.MeshLambertMaterial({ color: 0xc8987a });
-    const bandMat = new THREE.MeshLambertMaterial({ color: 0xb03a2a });
+    const bandMat = new THREE.MeshLambertMaterial({ color: team === 'CT' ? 0x2a5ab0 : 0xb03a2a });
     const gunMat = new THREE.MeshLambertMaterial({ color: 0x222220 });
     const torso = new THREE.Mesh(botGeo.torso, this.torsoMat);
     torso.position.y = 1.2;
@@ -758,10 +765,24 @@ class Bot {
     this.mesh = g;
   }
 
-  canSee() {
-    if (!player.alive) return false;
+  // Nearest live enemy: the player in normal play, opposing bots in spectate.
+  getTarget() {
+    if (!spectating) return player.alive ? player : null;
+    let best = null;
+    let bd = Infinity;
+    for (const b of bots) {
+      if (b === this || !b.alive || b.team === this.team) continue;
+      const d = (b.pos.x - this.pos.x) ** 2 + (b.pos.z - this.pos.z) ** 2;
+      if (d < bd) { bd = d; best = b; }
+    }
+    return best;
+  }
+
+  canSee(tgt) {
+    if (!tgt) return false;
     const from = new THREE.Vector3(this.pos.x, 1.78, this.pos.z);
-    const to = new THREE.Vector3(player.pos.x, player.pos.y + EYE, player.pos.z);
+    const eyeY = tgt === player ? tgt.pos.y + EYE : 1.78;
+    const to = new THREE.Vector3(tgt.pos.x, eyeY, tgt.pos.z);
     const d = to.sub(from);
     const dist = d.length();
     d.normalize();
@@ -783,21 +804,36 @@ class Bot {
     this.deadT = 0;
   }
 
-  fireAtPlayer() {
+  fireAt(tgt) {
     const from = new THREE.Vector3(this.pos.x, 1.5, this.pos.z);
-    const target = new THREE.Vector3(player.pos.x, player.pos.y + EYE - 0.25, player.pos.z);
+    const isPlayer = tgt === player;
+    const aimY = isPlayer ? tgt.pos.y + EYE - 0.25 : 1.3;
+    const target = new THREE.Vector3(tgt.pos.x, aimY, tgt.pos.z);
     const dist = from.distanceTo(target);
     sfx.shot('enemy');
     const chance = Math.max(0.08, 0.55 - dist * 0.0055);
     if (Math.random() < chance) {
       spawnTracer(from, target, 0xffb060);
-      damagePlayer(9 + Math.random() * 9);
+      if (isPlayer) damagePlayer(9 + Math.random() * 9);
+      else this.damageBot(tgt, 9 + Math.random() * 9);
     } else {
       const miss = target.clone();
       miss.x += (Math.random() - 0.5) * 3;
       miss.y += (Math.random() - 0.5) * 2;
       miss.z += (Math.random() - 0.5) * 3;
       spawnTracer(from, miss, 0xffb060);
+    }
+  }
+
+  damageBot(tgt, dmg) {
+    tgt.hp -= dmg;
+    tgt.alert = true;
+    tgt.flash(0.1);
+    if (tgt.hp <= 0) {
+      tgt.die();
+      spawnParticles({ x: tgt.pos.x, y: 1.2, z: tgt.pos.z }, 0x7a1f12, 6, 2.2);
+      addKillfeed(`${this.name} ⟶ ${tgt.name}`, tgt.team === 'CT');
+      checkSpectateRoundEnd();
     }
   }
 
@@ -814,13 +850,14 @@ class Bot {
       if (this.flashT <= 0) this.torsoMat.emissive.setHex(0x000000);
     }
 
-    const los = this.canSee();
+    const tgt = this.getTarget();
+    const los = this.canSee(tgt);
     if (los && !this.hadLOS) this.reactT = 0.45 + Math.random() * 0.3;
     this.hadLOS = los;
 
     if (los) {
       this.alert = true;
-      const desired = Math.atan2(-(player.pos.x - this.pos.x), -(player.pos.z - this.pos.z));
+      const desired = Math.atan2(-(tgt.pos.x - this.pos.x), -(tgt.pos.z - this.pos.z));
       let dy = desired - this.yaw;
       while (dy > Math.PI) dy -= Math.PI * 2;
       while (dy < -Math.PI) dy += Math.PI * 2;
@@ -830,7 +867,7 @@ class Bot {
       } else {
         this.fireT -= dt;
         if (this.fireT <= 0) {
-          this.fireAtPlayer();
+          this.fireAt(tgt);
           this.fireT = 0.55 + Math.random() * 0.5;
         }
       }
@@ -842,10 +879,10 @@ class Bot {
       this.pos.z += pz * Math.cos(this.strafePhase) * 2.0 * dt;
     } else {
       this.fireT = Math.max(this.fireT, 0.25);
-      if (this.alert && player.alive) {
+      if (this.alert && tgt) {
         this.repathT -= dt;
         if (this.repathT <= 0 || !this.path || this.pathI >= this.path.length) {
-          this.path = bfsPath(nearestWp(this.pos.x, this.pos.z), nearestWp(player.pos.x, player.pos.z));
+          this.path = bfsPath(nearestWp(this.pos.x, this.pos.z), nearestWp(tgt.pos.x, tgt.pos.z));
           this.pathI = 0;
           this.repathT = 2;
         }
@@ -889,12 +926,17 @@ let bots = [];
 
 function spawnBots() {
   for (const b of bots) b.dispose();
-  bots = BOT_SPAWNS.map(([x, z], i) => new Bot(`Bot_${BOT_NAMES[i]}`, x, z));
+  bots = BOT_SPAWNS.map(([x, z], i) => new Bot(`Bot_${BOT_NAMES[i]}`, x, z, 'T'));
+  // spectate mode fields a mirrored CT squad on the player's side of the map
+  if (spectating) {
+    bots.push(...BOT_SPAWNS.map(([x, z], i) => new Bot(`Bot_${CT_BOT_NAMES[i]}`, -x, -z, 'CT')));
+  }
 }
 
 // ---------------------------------------------------------------- rounds / economy
 let state = 'menu'; // menu | buy | live | over | matchend
 let paused = false;
+let spectating = false;
 let tState = 0;
 let round = 0;
 let ctScore = 0;
@@ -942,12 +984,29 @@ function startRound() {
   setZoom(false);
   buildViewModel(curInst().id);
   spawnBots();
-  state = 'buy';
-  tState = BUY_TIME;
-  openBuyMenu(true);
+  if (spectating) {
+    // no buy phase, no viewmodel — straight to the bot fight
+    vmGroup.visible = false;
+    specCam = -1;
+    setSpecLabel();
+    state = 'live';
+    tState = ROUND_TIME;
+    openBuyMenu(false);
+    banner(`ROUND ${round}`, 'bots vs bots', false, 1.8);
+  } else {
+    state = 'buy';
+    tState = BUY_TIME;
+    openBuyMenu(true);
+    banner(`ROUND ${round}`, 'buy your gear', false, 1.8);
+  }
   sfx.roundStart();
-  banner(`ROUND ${round}`, 'buy your gear', false, 1.8);
   updateHUD();
+}
+
+function checkSpectateRoundEnd() {
+  if (!spectating || state !== 'live') return;
+  if (!bots.some((b) => b.alive && b.team === 'T')) endRound(true);
+  else if (!bots.some((b) => b.alive && b.team === 'CT')) endRound(false);
 }
 
 function goLive() {
@@ -980,12 +1039,73 @@ function matchEnd() {
   state = 'matchend';
   document.exitPointerLock();
   const won = ctScore > tScore;
-  els.matchResult.textContent = won ? 'MATCH WON' : 'MATCH LOST';
+  if (spectating) {
+    els.matchResult.textContent = won ? 'CT WIN THE MATCH' : 'T WIN THE MATCH';
+    els.matchStats.textContent = 'spectator match — bots only';
+    els.againBtn.textContent = 'SPECTATE AGAIN';
+  } else {
+    els.matchResult.textContent = won ? 'MATCH WON' : 'MATCH LOST';
+    const acc = player.shots ? Math.round((player.hits / player.shots) * 100) : 0;
+    els.matchStats.textContent = `Kills ${player.kills} · Deaths ${player.deaths} · Accuracy ${acc}%`;
+    els.againBtn.textContent = 'PLAY AGAIN';
+  }
   els.matchScore.textContent = `${ctScore} — ${tScore}`;
-  const acc = player.shots ? Math.round((player.hits / player.shots) * 100) : 0;
-  els.matchStats.textContent = `Kills ${player.kills} · Deaths ${player.deaths} · Accuracy ${acc}%`;
   els.matchOverlay.classList.remove('hidden');
   els.hud.classList.add('hidden');
+}
+
+// ---------------------------------------------------------------- spectate
+// Touch-friendly bot-vs-bot mode: no pointer lock, camera driven by buttons.
+let specCam = -1; // -1 = overview orbit, otherwise index into bots
+let specOrbit = 0;
+
+function setSpecLabel() {
+  setText(els.camBtn, specCam < 0 ? 'CAM · OVERVIEW' : `CAM · ${bots[specCam].name}`);
+}
+
+function cycleSpecCam() {
+  for (let i = specCam + 1; i < bots.length; i++) {
+    if (bots[i].alive) { specCam = i; setSpecLabel(); return; }
+  }
+  specCam = -1;
+  setSpecLabel();
+}
+
+function updateSpectateCam(dt) {
+  if (specCam >= 0 && !bots[specCam]?.alive) cycleSpecCam();
+  if (specCam < 0) {
+    specOrbit += dt * 0.08;
+    camera.position.set(Math.sin(specOrbit) * 30, 26, Math.cos(specOrbit) * 30);
+    camera.lookAt(0, 0, 0);
+  } else {
+    const b = bots[specCam];
+    const bx = Math.sin(b.yaw);
+    const bz = Math.cos(b.yaw);
+    camera.position.set(b.pos.x + bx * 4.2, 3.4, b.pos.z + bz * 4.2);
+    camera.lookAt(b.pos.x - bx * 3, 1.3, b.pos.z - bz * 3);
+  }
+}
+
+function enterSpectate() {
+  spectating = true;
+  specCam = -1;
+  paused = false;
+  els.overlay.classList.add('hidden');
+  els.matchOverlay.classList.add('hidden');
+  els.hud.classList.add('spectate');
+  els.spectateBar.classList.remove('hidden');
+  startMatch();
+}
+
+function exitSpectate() {
+  spectating = false;
+  state = 'menu';
+  els.overlayMsg.textContent = 'CLICK TO JOIN — FIRST TO 8 ROUNDS WINS';
+  els.hud.classList.add('hidden');
+  els.hud.classList.remove('spectate');
+  els.spectateBar.classList.add('hidden');
+  els.matchOverlay.classList.add('hidden');
+  els.overlay.classList.remove('hidden');
 }
 
 // ---------------------------------------------------------------- HUD
@@ -1005,8 +1125,14 @@ function updateHUD() {
   setText(els.scoreCT, `CT ${ctScore}`);
   setText(els.scoreT, `${tScore} T`);
   setText(els.roundLabel, `ROUND ${round}`);
-  const alive = bots.filter((b) => b.alive).length;
-  setText(els.enemies, `ENEMIES ${alive}/${bots.length || 5}`);
+  if (spectating) {
+    const ct = bots.filter((b) => b.alive && b.team === 'CT').length;
+    const t = bots.filter((b) => b.alive && b.team === 'T').length;
+    setText(els.enemies, `ALIVE · CT ${ct} — ${t} T`);
+  } else {
+    const alive = bots.filter((b) => b.alive).length;
+    setText(els.enemies, `ENEMIES ${alive}/${bots.length || 5}`);
+  }
   const inst = curInst();
   const spec = WEAPONS[inst.id];
   setText(els.weapon, spec.skin.toUpperCase());
@@ -1085,11 +1211,12 @@ function purchase(i) {
 
 // ---------------------------------------------------------------- scoreboard
 function renderScoreboard() {
-  const botRows = bots.map((b) => `<tr class="${b.alive ? '' : 'dead'}"><td>${b.name}</td><td>T</td><td>${b.alive ? 'alive' : 'dead'}</td></tr>`).join('');
+  const botRows = bots.map((b) => `<tr class="${b.alive ? '' : 'dead'}"><td>${b.name}</td><td>${b.team}</td><td>${b.alive ? 'alive' : 'dead'}</td></tr>`).join('');
+  const youRow = spectating ? ''
+    : `<tr class="you"><td>you · ${player.kills}K / ${player.deaths}D</td><td>CT</td><td>${player.alive ? 'alive' : 'dead'}</td></tr>`;
   els.scoreboard.innerHTML = `<h2>CUBESTRIKE — CT ${ctScore} : ${tScore} T</h2>
     <table><tr><th>PLAYER</th><th>TEAM</th><th>STATUS</th></tr>
-    <tr class="you"><td>you · ${player.kills}K / ${player.deaths}D</td><td>CT</td><td>${player.alive ? 'alive' : 'dead'}</td></tr>
-    ${botRows}</table>`;
+    ${youRow}${botRows}</table>`;
 }
 
 // ---------------------------------------------------------------- input
@@ -1158,8 +1285,17 @@ els.overlay.addEventListener('click', () => {
 els.againBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   sfx.unlock();
+  if (spectating) { enterSpectate(); return; }
   canvas.requestPointerLock();
 });
+
+els.spectateBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  sfx.unlock();
+  enterSpectate();
+});
+els.camBtn.addEventListener('click', cycleSpecCam);
+els.exitBtn.addEventListener('click', exitSpectate);
 
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
@@ -1193,7 +1329,8 @@ function loop(now) {
     camera.lookAt(0, 0, 0);
     vmGroup.visible = false;
   } else if (!paused) {
-    updatePlayer(dt);
+    if (spectating) updateSpectateCam(dt);
+    else updatePlayer(dt);
     if (state === 'buy') {
       tState -= dt;
       if (tState <= 0) goLive();
@@ -1202,7 +1339,8 @@ function loop(now) {
       tState -= dt;
       if (tState <= 0) endRound(true); // defenders held the site
     } else if (state === 'over') {
-      for (const bot of bots) { if (!bot.alive) bot.update(dt); }
+      // spectate keeps survivors animated between rounds; play mode freezes them
+      for (const bot of bots) { if (spectating || !bot.alive) bot.update(dt); }
       tState -= dt;
       if (tState <= 0) {
         if (ctScore >= MATCH_WIN_ROUNDS || tScore >= MATCH_WIN_ROUNDS) matchEnd();

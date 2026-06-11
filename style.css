@@ -134,6 +134,22 @@ body { font-family: Verdana, Geneva, sans-serif; user-select: none; }
 #scoreboard tr.you td { color: #fff; }
 #scoreboard tr.dead td { color: #7a6f5a; text-decoration: line-through; }
 
+/* ---------- spectate ---------- */
+#hud.spectate #bl, #hud.spectate #br, #hud.spectate #crosshair, #hud.spectate #speedo { display: none; }
+
+#spectateBar {
+  position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+  display: flex; gap: 10px; z-index: 20;
+}
+#spectateBar button, #spectateBtn {
+  font-family: inherit; font-size: 13px; font-weight: bold; letter-spacing: 2px;
+  background: rgba(12, 14, 8, 0.85); color: var(--hud);
+  border: 1px solid rgba(200, 209, 120, 0.45); padding: 12px 22px; cursor: pointer;
+  touch-action: manipulation;
+}
+#spectateBar button:active, #spectateBtn:active { background: var(--hud); color: #14140f; }
+#spectateBtn { display: block; margin: 0 auto 24px; }
+
 /* ---------- overlays ---------- */
 #overlay, #matchOverlay {
   position: fixed; inset: 0; z-index: 10; cursor: pointer;
