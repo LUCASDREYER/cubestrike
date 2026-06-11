@@ -349,6 +349,7 @@ const player = {
   load: { primary: null, secondary: null, knife: { id: 'knife' } },
   cur: 'secondary',
   cooldown: 0, reloading: 0, switchT: 0, zoomed: false, sprayI: 0, sprayCool: 0,
+  recoilP: 0, recoilY: 0,
   kills: 0, deaths: 0, shots: 0, hits: 0,
 };
 
@@ -493,6 +494,14 @@ function updatePlayer(dt) {
     if (Math.floor(prevPhase / Math.PI) !== Math.floor(bobPhase / Math.PI)) sfx.step();
   }
 
+  // view punch recovers on its own once the gun rests, CS-style — the spray
+  // climbs while you hold the trigger, then the camera glides back to your aim
+  if (player.cooldown <= 0) {
+    const rec = Math.pow(0.0005, dt);
+    player.recoilP *= rec;
+    player.recoilY *= rec;
+  }
+
   // camera
   if (player.alive) {
     camera.position.set(
@@ -500,7 +509,11 @@ function updatePlayer(dt) {
       player.pos.y + EYE + Math.sin(bobPhase * 2) * 0.035 * bobAmp,
       player.pos.z,
     );
-    camera.rotation.set(player.pitch, player.yaw, Math.sin(bobPhase) * 0.005 * bobAmp);
+    camera.rotation.set(
+      Math.max(-1.55, Math.min(1.55, player.pitch + player.recoilP)),
+      player.yaw + player.recoilY,
+      Math.sin(bobPhase) * 0.005 * bobAmp,
+    );
     if (!player.zoomed) {
       // subtle fov stretch sells bhop speed
       const tf = 74 + (player.speedMult - 1) * 10;
@@ -757,8 +770,8 @@ function fire() {
   // sways in a fixed per-weapon pattern — learnable and controllable, no RNG
   const i = player.sprayI++;
   player.sprayCool = 60 / spec.rpm + 0.22;
-  player.pitch = Math.min(1.55, player.pitch + spec.recoil * 0.012 * (1 + Math.min(i, 12) * 0.07));
-  player.yaw += Math.sin(i * 0.8) * spec.recoil * 0.005;
+  player.recoilP = Math.min(0.45, player.recoilP + spec.recoil * 0.012 * (1 + Math.min(i, 12) * 0.07));
+  player.recoilY += Math.sin(i * 0.8) * spec.recoil * 0.005;
 
   if (inst.mag === 0 && inst.reserve > 0) startReload(); // mag ran dry mid-fight
 
@@ -1120,6 +1133,8 @@ function startRound() {
   player.cooldown = 0;
   player.reloading = 0;
   player.sprayI = 0;
+  player.recoilP = 0;
+  player.recoilY = 0;
   deathT = 0;
   els.vignette.classList.remove('dead');
   els.vignette.style.opacity = 0;
