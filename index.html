@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CUBESTRIKE — browser tactical FPS</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="topbar">
+    <span id="scoreCT">CT 0</span>
+    <span id="timer">0:05</span>
+    <span id="scoreT">0 T</span>
+  </div>
+  <div id="roundLabel">ROUND 1</div>
+  <div id="enemies">ENEMIES 5/5</div>
+  <div id="killfeed"></div>
+  <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+  <div id="hitmarker">✕</div>
+  <div id="banner"><div id="bannerMain"></div><div id="bannerSub"></div></div>
+  <div id="bl">
+    <div class="stat"><span class="lbl">✚</span><span id="hp">100</span></div>
+    <div class="stat"><span class="lbl">⛨</span><span id="armor">0</span></div>
+    <div class="stat money"><span class="lbl">$</span><span id="money">800</span></div>
+  </div>
+  <div id="br">
+    <div id="weapon">P9 SIDEARM</div>
+    <div id="ammo">12 / 36</div>
+  </div>
+  <div id="buymenu" class="hidden"></div>
+  <div id="scoreboard" class="hidden"></div>
+  <div id="vignette"></div>
+  <div id="scope" class="hidden"></div>
+</div>
+
+<div id="overlay">
+  <div class="panel">
+    <h1>CUBE<span>STRIKE</span></h1>
+    <p class="tag">a Counter-Strike 1.6&ndash;style homage, in your browser</p>
+    <div id="overlayMsg">CLICK TO JOIN &mdash; FIRST TO 8 ROUNDS WINS</div>
+    <div class="controls">
+      <div><b>WASD</b> move</div><div><b>Mouse</b> aim / shoot</div>
+      <div><b>B</b> buy menu</div><div><b>R</b> reload</div>
+      <div><b>1 2 3</b> weapons</div><div><b>Space</b> jump</div>
+      <div><b>RMB</b> scope (Long Tom)</div><div><b>Tab</b> scoreboard</div>
+    </div>
+    <p class="note">Desktop + mouse required. All code and "assets" are original &mdash; no Valve content.</p>
+  </div>
+</div>
+
+<div id="matchOverlay" class="hidden">
+  <div class="panel">
+    <h1 id="matchResult">MATCH WON</h1>
+    <p id="matchScore">8 &mdash; 3</p>
+    <p id="matchStats"></p>
+    <button id="againBtn">PLAY AGAIN</button>
+  </div>
+</div>
+
+<script type="module" src="js/game.js"></script>
+</body>
+</html>
