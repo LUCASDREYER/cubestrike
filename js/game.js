@@ -32,7 +32,7 @@ const els = {
 // with nearest-neighbor; snap vertices to a coarse grid for the affine
 // wobble; hard 1-tap shadows. The HUD stays crisp — only the world is 1997.
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-const PIXEL_H = 270; // internal vertical resolution — the retro dial
+const PIXEL_H = 432; // internal vertical resolution — the retro dial
 function sizeRenderer() {
   const s = Math.max(1, window.innerHeight / PIXEL_H);
   renderer.setPixelRatio(1);
@@ -47,7 +47,7 @@ THREE.ShaderChunk.project_vertex = THREE.ShaderChunk.project_vertex.replace(
   'gl_Position = projectionMatrix * mvPosition;',
   `gl_Position = projectionMatrix * mvPosition;
   if (gl_Position.w > 0.0) {
-    vec2 psxGrid = vec2(320.0, 180.0);
+    vec2 psxGrid = vec2(640.0, 360.0);
     vec3 psxNdc = gl_Position.xyz / gl_Position.w;
     psxNdc.xy = (floor((psxNdc.xy * 0.5 + 0.5) * psxGrid + 0.5) / psxGrid) * 2.0 - 1.0;
     gl_Position.xyz = psxNdc * gl_Position.w;
