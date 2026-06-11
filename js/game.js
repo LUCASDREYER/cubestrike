@@ -28,11 +28,31 @@ const els = {
 };
 
 // ---------------------------------------------------------------- renderer / scene
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
+// PS1 presentation: render at a low internal resolution and let CSS upscale
+// with nearest-neighbor; snap vertices to a coarse grid for the affine
+// wobble; hard 1-tap shadows. The HUD stays crisp — only the world is 1997.
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+const PIXEL_H = 270; // internal vertical resolution — the retro dial
+function sizeRenderer() {
+  const s = Math.max(1, window.innerHeight / PIXEL_H);
+  renderer.setPixelRatio(1);
+  renderer.setSize(Math.round(window.innerWidth / s), Math.round(window.innerHeight / s), false);
+}
+sizeRenderer();
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.BasicShadowMap;
+
+// vertex snapping, injected into every material's vertex stage
+THREE.ShaderChunk.project_vertex = THREE.ShaderChunk.project_vertex.replace(
+  'gl_Position = projectionMatrix * mvPosition;',
+  `gl_Position = projectionMatrix * mvPosition;
+  if (gl_Position.w > 0.0) {
+    vec2 psxGrid = vec2(320.0, 180.0);
+    vec3 psxNdc = gl_Position.xyz / gl_Position.w;
+    psxNdc.xy = (floor((psxNdc.xy * 0.5 + 0.5) * psxGrid + 0.5) / psxGrid) * 2.0 - 1.0;
+    gl_Position.xyz = psxNdc * gl_Position.w;
+  }`,
+);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xc9b287);
@@ -60,46 +80,144 @@ scene.add(muzzleLight);
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  sizeRenderer();
 });
 
 // ---------------------------------------------------------------- map
-function speckleTexture(base, speck, repeat) {
+// All surfaces are tiny generated canvases with nearest filtering — chunky
+// low-budget texels, like the disc only had room for 64x64s.
+function canvasTex(w, h, draw) {
   const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d');
-  g.fillStyle = base;
-  g.fillRect(0, 0, 128, 128);
-  g.fillStyle = speck;
-  for (let i = 0; i < 700; i++) {
-    g.globalAlpha = Math.random() * 0.25;
-    g.fillRect(Math.random() * 128, Math.random() * 128, 2, 2);
-  }
+  c.width = w;
+  c.height = h;
+  draw(c.getContext('2d'), w, h);
   const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(repeat, repeat);
   return t;
 }
 
+function speckle(g, w, h, n, alpha) {
+  for (let i = 0; i < n; i++) {
+    g.globalAlpha = Math.random() * alpha;
+    g.fillRect(Math.floor(Math.random() * w), Math.floor(Math.random() * h), 1 + (Math.random() * 2 | 0), 1 + (Math.random() * 2 | 0));
+  }
+  g.globalAlpha = 1;
+}
+
+function shade(hex, f) {
+  const ch = (s) => Math.min(255, Math.round(((hex >> s) & 255) * f));
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+}
+
+// worn concrete panels
+function wallTex(color) {
+  return canvasTex(64, 64, (g, w, h) => {
+    g.fillStyle = shade(color, 1);
+    g.fillRect(0, 0, w, h);
+    g.strokeStyle = shade(color, 0.72);
+    g.lineWidth = 2;
+    g.strokeRect(1, 1, w - 2, h - 2);
+    g.fillStyle = shade(color, 0.8);
+    speckle(g, w, h, 260, 0.35);
+    g.fillStyle = shade(color, 1.18);
+    speckle(g, w, h, 120, 0.25);
+    g.fillStyle = 'rgba(40,30,15,0.25)';
+    g.fillRect(0, h - 8, w, 8); // grime line at the ground
+  });
+}
+
+// inflatable vinyl: top sheen, vertical seams, ground weld band
+function vinylTex(color) {
+  return canvasTex(64, 64, (g, w, h) => {
+    g.fillStyle = shade(color, 1);
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = shade(color, 1.25);
+    g.fillRect(0, 4, w, 7);
+    g.strokeStyle = shade(color, 0.7);
+    g.lineWidth = 1;
+    for (let x = 0; x <= w; x += 16) {
+      g.beginPath();
+      g.moveTo(x + 0.5, 0);
+      g.lineTo(x + 0.5, h);
+      g.stroke();
+    }
+    g.fillStyle = shade(color, 0.78);
+    g.fillRect(0, h - 6, w, 6);
+    g.fillStyle = shade(color, 0.85);
+    speckle(g, w, h, 140, 0.2);
+  });
+}
+
+// plywood planks
+function plankTex(color) {
+  return canvasTex(64, 64, (g, w, h) => {
+    g.fillStyle = shade(color, 1);
+    g.fillRect(0, 0, w, h);
+    for (let y = 0; y < h; y += 16) {
+      g.fillStyle = shade(color, 0.62);
+      g.fillRect(0, y, w, 2);
+      g.fillStyle = shade(color, 0.9 + (y % 32 ? 0.16 : 0));
+      g.fillRect(0, y + 2, w, 14);
+    }
+    g.fillStyle = shade(color, 0.75);
+    speckle(g, w, h, 220, 0.3);
+  });
+}
+
+// the floor is one 1m≈5px canvas with painted, worn speedball field markings
+const floorTex = canvasTex(256, 352, (g, w, h) => {
+  g.fillStyle = '#a08a5e';
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = '#6e5c39';
+  speckle(g, w, h, 2600, 0.3);
+  g.fillStyle = '#bba877';
+  speckle(g, w, h, 1400, 0.25);
+  g.strokeStyle = '#e8e2c8';
+  g.globalAlpha = 0.42;
+  g.lineWidth = 2;
+  g.strokeRect(10, 10, w - 20, h - 20); // field boundary
+  g.beginPath();
+  g.moveTo(10, h / 2);
+  g.lineTo(w - 10, h / 2); // the 50
+  g.stroke();
+  g.beginPath();
+  g.arc(w / 2, h / 2, 30, 0, Math.PI * 2); // center circle
+  g.stroke();
+  g.globalAlpha = 1;
+  g.fillStyle = '#a08a5e';
+  speckle(g, w, h, 700, 0.5); // chip the paint
+});
+
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(50, 70),
-  new THREE.MeshLambertMaterial({ map: speckleTexture('#a18a5c', '#6e5c39', 10) }),
+  new THREE.MeshLambertMaterial({ map: floorTex }),
 );
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
 
-const KIND_COLOR = {
-  wall: 0xb39b72, pillar: 0x9c8259, crate: 0x8a6a3f, crateLow: 0x7c7245,
-  // speedball inflatable bunkers
-  bunkerRed: 0xd03a2f, bunkerBlue: 0x2f6fd0, bunkerYellow: 0xe0b33a,
+const KIND_TEX = {
+  wall: wallTex(0xb39b72),
+  pillar: plankTex(0x9c8259),
+  crate: plankTex(0x8a6a3f),
+  crateLow: plankTex(0x7c7245),
+  bunkerRed: vinylTex(0xd03a2f),
+  bunkerBlue: vinylTex(0x2f6fd0),
+  bunkerYellow: vinylTex(0xe0b33a),
 };
 const WALLS = []; // { min:Vector3, max:Vector3 }
 
 for (const [x, z, w, d, h, y, kind] of MAP_BOXES) {
+  // per-box texture repeat keeps texel density roughly world-scaled
+  const tex = KIND_TEX[kind].clone();
+  tex.needsUpdate = true;
+  tex.repeat.set(Math.max(1, Math.round(Math.max(w, d) / 3)), Math.max(1, Math.round(h / 3)));
   const mesh = new THREE.Mesh(
     new THREE.BoxGeometry(w, h, d),
-    new THREE.MeshLambertMaterial({ color: KIND_COLOR[kind] }),
+    new THREE.MeshLambertMaterial({ map: tex }),
   );
   mesh.position.set(x, y + h / 2, z);
   mesh.castShadow = mesh.receiveShadow = true;
