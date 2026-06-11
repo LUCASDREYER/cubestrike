@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>CUBESTRIKE — browser tactical FPS</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
@@ -45,6 +45,7 @@
     <p class="tag">a Counter-Strike 1.6&ndash;style homage, in your browser</p>
     <div id="overlayMsg">CLICK TO JOIN &mdash; FIRST TO 8 ROUNDS WINS</div>
     <button id="spectateBtn">SPECTATE &mdash; BOTS vs BOTS</button>
+    <button id="touchBtn">PLAY WITH TOUCH CONTROLS</button>
     <div class="controls">
       <div><b>WASD</b> move</div><div><b>Mouse</b> aim / shoot</div>
       <div><b>B</b> buy menu</div><div><b>R</b> reload</div>
@@ -52,6 +53,23 @@
       <div><b>RMB</b> scope (Long Tom)</div><div><b>Tab</b> scoreboard</div>
     </div>
     <p class="note">Desktop + mouse required to play; spectate works on phones. All code and "assets" are original &mdash; no Valve content.</p>
+  </div>
+</div>
+
+<div id="touchUI" class="hidden">
+  <div id="joyZone"></div>
+  <div id="aimZone"></div>
+  <div id="joyBase" class="hidden"><div id="joyKnob"></div></div>
+  <button id="btnFire" class="tbtn">◉</button>
+  <button id="btnJump" class="tbtn">⤒</button>
+  <button id="btnReload" class="tbtn">R</button>
+  <button id="btnScope" class="tbtn">⊕</button>
+  <button id="btnBuy" class="tbtn">$</button>
+  <button id="btnPause" class="tbtn">❚❚</button>
+  <div id="wpnRow">
+    <button class="tbtn" data-slot="primary">1</button>
+    <button class="tbtn" data-slot="secondary">2</button>
+    <button class="tbtn" data-slot="knife">3</button>
   </div>
 </div>
 

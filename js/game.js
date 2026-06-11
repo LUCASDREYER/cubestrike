@@ -20,6 +20,11 @@ const els = {
   matchScore: $('matchScore'), matchStats: $('matchStats'), againBtn: $('againBtn'),
   spectateBtn: $('spectateBtn'), spectateBar: $('spectateBar'),
   camBtn: $('camBtn'), exitBtn: $('exitBtn'),
+  touchUI: $('touchUI'), touchBtn: $('touchBtn'), joyZone: $('joyZone'),
+  aimZone: $('aimZone'), joyBase: $('joyBase'), joyKnob: $('joyKnob'),
+  btnFire: $('btnFire'), btnJump: $('btnJump'), btnReload: $('btnReload'),
+  btnScope: $('btnScope'), btnBuy: $('btnBuy'), btnPause: $('btnPause'),
+  wpnRow: $('wpnRow'),
 };
 
 // ---------------------------------------------------------------- renderer / scene
@@ -307,6 +312,7 @@ function updatePlayer(dt) {
   if (player.alive && canMove) {
     f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
     r = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    if (touchMode) { f += joy.f; r += joy.r; }
     const len = Math.hypot(f, r) || 1;
     const speed = (curSpec().melee ? 7.6 : 6.8) * player.speedMult;
     const sy = Math.sin(player.yaw);
@@ -596,7 +602,7 @@ function fire() {
   // no bloom: a still, grounded shot goes exactly where the crosshair points.
   // moving, jumping, and noscoping cost accuracy — that's the anti-laser tax.
   let sp = 0;
-  const moving = keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD;
+  const moving = keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD || Math.hypot(joy.f, joy.r) > 0.2;
   if (moving) sp += spec.spread * 2.2;
   if (!player.grounded) sp += spec.spread * 4;
   if (inst.id === 'sniper' && !player.zoomed) sp += spec.spread * 3;
@@ -1113,6 +1119,7 @@ function enterSpectate() {
   paused = false;
   els.overlay.classList.add('hidden');
   els.matchOverlay.classList.add('hidden');
+  els.touchUI.classList.add('hidden');
   els.hud.classList.add('spectate');
   els.spectateBar.classList.remove('hidden');
   startMatch();
@@ -1121,7 +1128,7 @@ function enterSpectate() {
 function exitSpectate() {
   spectating = false;
   state = 'menu';
-  els.overlayMsg.textContent = 'CLICK TO JOIN — FIRST TO 8 ROUNDS WINS';
+  els.overlayMsg.textContent = JOIN_MSG;
   els.hud.classList.add('hidden');
   els.hud.classList.remove('spectate');
   els.spectateBar.classList.add('hidden');
@@ -1210,7 +1217,10 @@ function renderBuyMenu() {
       <span class="price">$${spec.price}</span></div>`;
   }).join('');
   els.buymenu.innerHTML = `<h2>BUY EQUIPMENT</h2>${rows}
-    <div class="foot">PRESS 1-${BUY_ITEMS.length} TO BUY · B TO CLOSE</div>`;
+    <div class="foot">${touchMode ? 'TAP AN ITEM TO BUY' : `PRESS 1-${BUY_ITEMS.length} TO BUY · B TO CLOSE`}</div>`;
+  els.buymenu.querySelectorAll('.buy-item').forEach((el, i) => {
+    el.addEventListener('click', () => purchase(i));
+  });
 }
 
 function purchase(i) {
@@ -1238,6 +1248,131 @@ function renderScoreboard() {
   els.scoreboard.innerHTML = `<h2>CUBESTRIKE — CT ${ctScore} : ${tScore} T</h2>
     <table><tr><th>PLAYER</th><th>TEAM</th><th>STATUS</th></tr>
     ${youRow}${botRows}</table>`;
+}
+
+// ---------------------------------------------------------------- touch controls
+// CoD Mobile-style: dynamic joystick on the left half, drag-to-aim on the
+// right, button cluster for fire/jump/reload/scope. Auto-enabled on coarse
+// pointer devices; desktop can opt in from the menu.
+const IS_TOUCH = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
+const JOIN_MSG = IS_TOUCH
+  ? 'TAP TO JOIN — FIRST TO 8 ROUNDS WINS'
+  : 'CLICK TO JOIN — FIRST TO 8 ROUNDS WINS';
+let touchMode = false;
+const joy = { id: null, f: 0, r: 0, baseX: 0, baseY: 0 };
+let aimId = null;
+let aimX = 0;
+let aimY = 0;
+const TOUCH_SENS = 0.0045;
+const JOY_R = 48;
+
+function startTouchPlay() {
+  touchMode = true;
+  paused = false;
+  els.overlay.classList.add('hidden');
+  els.matchOverlay.classList.add('hidden');
+  els.touchUI.classList.remove('hidden');
+  if (state === 'menu' || state === 'matchend') startMatch();
+}
+
+function resetTouchInputs() {
+  joy.id = null;
+  joy.f = 0;
+  joy.r = 0;
+  aimId = null;
+  mouseDown = false;
+  keys.Space = false;
+  els.joyBase.classList.add('hidden');
+}
+
+function pauseTouch() {
+  if (state === 'menu' || state === 'matchend') return;
+  paused = true;
+  resetTouchInputs();
+  els.overlayMsg.textContent = 'PAUSED — TAP TO RESUME';
+  els.overlay.classList.remove('hidden');
+}
+
+els.joyZone.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if (joy.id !== null) return;
+  joy.id = e.pointerId;
+  joy.baseX = e.clientX;
+  joy.baseY = e.clientY;
+  els.joyBase.style.left = `${e.clientX}px`;
+  els.joyBase.style.top = `${e.clientY}px`;
+  els.joyKnob.style.transform = 'translate(-50%, -50%)';
+  els.joyBase.classList.remove('hidden');
+});
+
+els.aimZone.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if (aimId !== null) return;
+  aimId = e.pointerId;
+  aimX = e.clientX;
+  aimY = e.clientY;
+});
+
+window.addEventListener('pointermove', (e) => {
+  if (!touchMode) return;
+  if (e.pointerId === joy.id) {
+    let dx = e.clientX - joy.baseX;
+    let dy = e.clientY - joy.baseY;
+    const m = Math.hypot(dx, dy);
+    if (m > JOY_R) { dx *= JOY_R / m; dy *= JOY_R / m; }
+    els.joyKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    joy.f = Math.abs(dy) < JOY_R * 0.18 ? 0 : -dy / JOY_R;
+    joy.r = Math.abs(dx) < JOY_R * 0.18 ? 0 : dx / JOY_R;
+  } else if (e.pointerId === aimId && player.alive && !paused) {
+    const s = TOUCH_SENS * (player.zoomed ? 0.4 : 1);
+    player.yaw -= (e.clientX - aimX) * s;
+    player.pitch -= (e.clientY - aimY) * s;
+    player.pitch = Math.max(-1.55, Math.min(1.55, player.pitch));
+    aimX = e.clientX;
+    aimY = e.clientY;
+  }
+});
+
+function releaseTouchPointer(e) {
+  if (e.pointerId === joy.id) {
+    joy.id = null;
+    joy.f = 0;
+    joy.r = 0;
+    els.joyBase.classList.add('hidden');
+  }
+  if (e.pointerId === aimId) aimId = null;
+}
+window.addEventListener('pointerup', releaseTouchPointer);
+window.addEventListener('pointercancel', releaseTouchPointer);
+
+function bindBtn(el, down, up) {
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    down();
+  });
+  if (up) {
+    el.addEventListener('pointerup', (e) => { e.preventDefault(); up(); });
+    el.addEventListener('pointercancel', up);
+  }
+}
+bindBtn(els.btnFire, () => { mouseDown = true; fire(); }, () => { mouseDown = false; });
+bindBtn(els.btnJump, () => { keys.Space = true; }, () => { keys.Space = false; });
+bindBtn(els.btnReload, () => { if (state === 'live') startReload(); });
+bindBtn(els.btnScope, () => setZoom(!player.zoomed));
+bindBtn(els.btnBuy, () => openBuyMenu(!buyOpen));
+bindBtn(els.btnPause, pauseTouch);
+for (const b of els.wpnRow.children) bindBtn(b, () => switchSlot(b.dataset.slot));
+
+els.touchBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  sfx.unlock();
+  startTouchPlay();
+});
+
+if (IS_TOUCH) {
+  els.overlayMsg.textContent = JOIN_MSG;
+  els.touchBtn.classList.add('hidden'); // tap-to-join already goes touch
 }
 
 // ---------------------------------------------------------------- input
@@ -1300,6 +1435,7 @@ document.addEventListener('keyup', (e) => {
 // ---------------------------------------------------------------- pointer lock / overlays
 els.overlay.addEventListener('click', () => {
   sfx.unlock();
+  if (IS_TOUCH || touchMode) { startTouchPlay(); return; }
   canvas.requestPointerLock();
 });
 
@@ -1307,6 +1443,7 @@ els.againBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   sfx.unlock();
   if (spectating) { enterSpectate(); return; }
+  if (IS_TOUCH || touchMode) { startTouchPlay(); return; }
   canvas.requestPointerLock();
 });
 
