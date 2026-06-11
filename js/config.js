@@ -103,3 +103,5 @@ export const WAY_EDGES = [
 export const PLAYER_SPAWN = { x: 0, z: 30, yaw: 0 };
 export const BOT_SPAWNS = [[-16, -30], [-8, -30], [0, -30], [8, -30], [16, -30]];
 export const BOT_NAMES = ['Anton', 'Igor', 'Pavel', 'Dmitri', 'Slava'];
+// CT squad used by spectate (bots vs bots) mode.
+export const CT_BOT_NAMES = ['Price', 'Soap', 'Gaz', 'Ghost', 'Roach'];
