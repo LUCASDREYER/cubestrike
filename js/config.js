@@ -107,3 +107,17 @@ export const BOT_SPAWNS = [[-16, -30], [-8, -30], [0, -30], [8, -30], [16, -30]]
 export const BOT_NAMES = ['Anton', 'Igor', 'Pavel', 'Dmitri', 'Slava'];
 // CT squad used by spectate (bots vs bots) mode.
 export const CT_BOT_NAMES = ['Price', 'Soap', 'Gaz', 'Ghost', 'Roach'];
+
+// Multiplayer over Supabase Realtime (a hosted realtime service). To enable
+// online play: create a free project at https://supabase.com, then paste the
+// project URL and the anon/public API key (Project Settings -> API) below.
+// Leave them blank to keep the game single-player — the menu hides the online
+// button until these are filled in. The anon key is safe to ship in client
+// code; it only grants Realtime access, no database.
+export const NET = {
+  supabaseUrl: '',
+  supabaseKey: '',
+  sdkUrl: 'https://esm.sh/@supabase/supabase-js@2',
+  tickHz: 12,   // network snapshots per second per client
+  teamSize: 5,  // players per team; bots fill any empty slots
+};

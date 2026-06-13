@@ -45,6 +45,7 @@
     <p class="tag">a Counter-Strike 1.6&ndash;style homage, in your browser</p>
     <div id="overlayMsg">CLICK TO JOIN &mdash; FIRST TO 8 ROUNDS WINS</div>
     <button id="spectateBtn">SPECTATE &mdash; BOTS vs BOTS</button>
+    <button id="onlineBtn" class="hidden">PLAY ONLINE</button>
     <button id="touchBtn">PLAY WITH TOUCH CONTROLS</button>
     <div class="controls">
       <div><b>WASD</b> move</div><div><b>Mouse</b> aim / shoot</div>
@@ -76,6 +77,22 @@
 <div id="spectateBar" class="hidden">
   <button id="camBtn">CAM &middot; OVERVIEW</button>
   <button id="exitBtn">EXIT</button>
+</div>
+
+<div id="lobby" class="hidden">
+  <div class="panel">
+    <h1>PLAY <span>ONLINE</span></h1>
+    <p class="tag">CT vs T &mdash; bots fill the empty slots</p>
+    <div id="lobbyForm">
+      <label>CALLSIGN <input id="lobbyName" maxlength="14" placeholder="Player"></label>
+      <label>ROOM <input id="lobbyRoom" maxlength="16" placeholder="e.g. friday-night"></label>
+      <button id="lobbyJoin">CONNECT</button>
+    </div>
+    <div id="lobbyStatus"></div>
+    <div id="lobbyRoster"></div>
+    <button id="lobbyStart" class="hidden">START MATCH</button>
+    <button id="lobbyBack">BACK</button>
+  </div>
 </div>
 
 <div id="matchOverlay" class="hidden">

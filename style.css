@@ -183,8 +183,35 @@ body { font-family: Verdana, Geneva, sans-serif; user-select: none; }
   touch-action: manipulation;
 }
 #spectateBar button:active, #spectateBtn:active, #touchBtn:active { background: var(--hud); color: #14140f; }
-#spectateBtn, #touchBtn { display: block; margin: 0 auto 12px; }
+#spectateBtn, #touchBtn, #onlineBtn { display: block; margin: 0 auto 12px; }
 #touchBtn { margin-bottom: 24px; }
+
+/* ---------- lobby ---------- */
+#lobby {
+  position: fixed; inset: 0; z-index: 12;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(24, 26, 16, 0.82), rgba(8, 9, 5, 0.96));
+}
+#lobbyForm { display: flex; flex-direction: column; gap: 12px; max-width: 320px; margin: 22px auto 0; }
+#lobbyForm label { display: flex; flex-direction: column; gap: 4px; text-align: left; font-size: 11px; letter-spacing: 2px; color: var(--hud-dim); }
+#lobbyForm input {
+  font-family: inherit; font-size: 15px; padding: 10px 12px; letter-spacing: 1px;
+  background: rgba(10, 12, 6, 0.7); color: #e8e2c8;
+  border: 1px solid rgba(200, 209, 120, 0.4);
+}
+#lobbyForm button, #lobbyStart, #lobbyBack {
+  font-family: inherit; font-size: 13px; font-weight: bold; letter-spacing: 2px;
+  background: var(--hud); color: #14140f; border: none; padding: 12px 22px; cursor: pointer;
+  touch-action: manipulation;
+}
+#lobbyBack { background: rgba(12, 14, 8, 0.85); color: var(--hud); border: 1px solid rgba(200, 209, 120, 0.45); }
+#lobbyStart { display: block; margin: 16px auto 8px; }
+#lobbyBack { display: block; margin: 8px auto 0; }
+#lobbyStatus { margin-top: 14px; font-size: 12px; letter-spacing: 1px; color: var(--hud); min-height: 16px; }
+#lobbyStatus.err { color: var(--warn); }
+#lobbyRoster { margin: 12px auto 0; max-width: 320px; font-size: 13px; color: #d8d2c2; }
+#lobbyRoster .row { display: flex; justify-content: space-between; padding: 4px 10px; background: rgba(10, 12, 6, 0.5); margin-top: 3px; }
+#lobbyRoster .row .tag { font-size: 10px; color: var(--hud-dim); letter-spacing: 1px; }
 
 /* ---------- overlays ---------- */
 #overlay, #matchOverlay {

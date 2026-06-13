@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import {
   WEAPONS, BUY_ITEMS, ECON, BHOP, MATCH_WIN_ROUNDS, BUY_TIME, ROUND_TIME,
-  MAP_BOXES, WAYPOINTS, WAY_EDGES, PLAYER_SPAWN, BOT_SPAWNS, BOT_NAMES, CT_BOT_NAMES,
+  MAP_BOXES, WAYPOINTS, WAY_EDGES, PLAYER_SPAWN, BOT_SPAWNS, BOT_NAMES, CT_BOT_NAMES, NET,
 } from './config.js';
 import { sfx } from './audio.js';
+import { net } from './net.js';
 
 // ---------------------------------------------------------------- DOM
 const $ = (id) => document.getElementById(id);
@@ -25,6 +26,9 @@ const els = {
   btnFire: $('btnFire'), btnJump: $('btnJump'), btnReload: $('btnReload'),
   btnScope: $('btnScope'), btnBuy: $('btnBuy'), btnPause: $('btnPause'),
   wpnRow: $('wpnRow'),
+  onlineBtn: $('onlineBtn'), lobby: $('lobby'), lobbyName: $('lobbyName'),
+  lobbyRoom: $('lobbyRoom'), lobbyJoin: $('lobbyJoin'), lobbyStatus: $('lobbyStatus'),
+  lobbyRoster: $('lobbyRoster'), lobbyStart: $('lobbyStart'), lobbyBack: $('lobbyBack'),
 };
 
 // ---------------------------------------------------------------- renderer / scene
@@ -553,7 +557,7 @@ function updatePlayer(dt) {
 
 let vignetteFlash = 0;
 
-function damagePlayer(d) {
+function damagePlayer(d, by, head) {
   if (!player.alive) return;
   if (player.armor > 0) {
     player.hp -= Math.round(d * 0.55);
@@ -565,20 +569,27 @@ function damagePlayer(d) {
   sfx.damage();
   if (player.hp <= 0) {
     player.hp = 0;
-    playerDie();
+    playerDie(by);
   }
   updateHUD();
 }
 
-function playerDie() {
+function playerDie(killer) {
   player.alive = false;
   player.deaths++;
   deathT = 0;
   setZoom(false);
   vmGroup.visible = false;
   els.vignette.classList.add('dead');
-  addKillfeed('Terrorists ⟶ you', true);
   banner('YOU DIED', '', true);
+  if (online) {
+    const txt = `${killer || 'enemy'} ⟶ ${net.name}`;
+    addKillfeed(txt, true);
+    net.send('kf', { text: txt, bad: false });
+    net.send('died', { id: net.myId, by: killer || '' });
+    return; // the host's round-end poll handles the round outcome
+  }
+  addKillfeed('Terrorists ⟶ you', true);
   setTimeout(() => { if (state === 'live') endRound(false); }, 1700);
 }
 
@@ -725,6 +736,7 @@ function fire() {
 
   inst.mag--;
   player.shots++;
+  if (online) firedThisTick = true; // remotes draw a tracer for this shot
   player.cooldown = 60 / spec.rpm;
   sfx.shot(inst.id);
   vmKick = 0.07;
@@ -759,8 +771,23 @@ function fire() {
   );
   spawnTracer(tipStart, end, spec.energy);
 
-  if (hit && hit.bot) {
-    hurtBot(hit.bot, spec.dmg * (hit.head ? 4 : 1), hit.head, inst.id);
+  if (hit && hit.remote) {
+    // human target: optimistic feedback, authoritative damage applied by them
+    net.send('dmg', { target: hit.remote.id, amount: spec.dmg * (hit.head ? 4 : 1), head: hit.head, by: net.name });
+    player.hits++;
+    showHitmarker(hit.head);
+    sfx.hit(hit.head);
+    spawnParticles(end, 0x7a1f12, 6, 2.2);
+  } else if (hit && hit.bot) {
+    if (online && !net.isHost) {
+      // bots live on the host; report the hit and show local feedback
+      net.send('bothit', { bi: bots.indexOf(hit.bot), amount: spec.dmg * (hit.head ? 4 : 1), head: hit.head, by: net.name, wid: inst.id });
+      player.hits++;
+      showHitmarker(hit.head);
+      sfx.hit(hit.head);
+    } else {
+      hurtBot(hit.bot, spec.dmg * (hit.head ? 4 : 1), hit.head, inst.id);
+    }
     spawnParticles(end, 0x7a1f12, 6, 2.2);
   } else if (hit) {
     spawnParticles(end, 0xcbb088, 5, 1.8);
@@ -778,24 +805,29 @@ function fire() {
   updateHUD();
 }
 
-// Nearest hit among walls and bots: { t, bot|null, head }
+// Nearest hit among walls, bots, and (online) remote players: { t, bot, remote, head }
 function hitScan(origin, dir, maxT) {
   let best = null;
   const wallT = rayWalls(origin, dir, maxT);
-  if (wallT !== null) best = { t: wallT, bot: null, head: false };
-  for (const bot of bots) {
-    if (!bot.alive) continue;
-    const headT = raySphere(origin, dir, _v1.set(bot.pos.x, 1.85, bot.pos.z), 0.3);
+  if (wallT !== null) best = { t: wallT, bot: null, remote: null, head: false };
+  const consider = (ent) => {
+    if (!ent.alive) return;
+    if (online && ent.team === myTeam) return; // no friendly fire online
+    const headT = raySphere(origin, dir, _v1.set(ent.pos.x, 1.85, ent.pos.z), 0.3);
     const bodyBox = {
-      min: _boxMin.set(bot.pos.x - 0.45, 0, bot.pos.z - 0.45),
-      max: _boxMax.set(bot.pos.x + 0.45, 1.7, bot.pos.z + 0.45),
+      min: _boxMin.set(ent.pos.x - 0.45, 0, ent.pos.z - 0.45),
+      max: _boxMax.set(ent.pos.x + 0.45, 1.7, ent.pos.z + 0.45),
     };
     const bodyT = rayBox(origin, dir, bodyBox, maxT);
     let t = null;
     let head = false;
     if (headT !== null && (bodyT === null || headT < bodyT)) { t = headT; head = true; } else if (bodyT !== null) t = bodyT;
-    if (t !== null && t < maxT && (best === null || t < best.t)) best = { t, bot, head };
-  }
+    if (t !== null && t < maxT && (best === null || t < best.t)) {
+      best = { t, bot: ent instanceof Bot ? ent : null, remote: ent instanceof RemotePlayer ? ent : null, head };
+    }
+  };
+  for (const bot of bots) consider(bot);
+  if (online) for (const rp of remotes.values()) consider(rp);
   return best;
 }
 const _boxMin = new THREE.Vector3();
@@ -812,15 +844,19 @@ function startReload() {
   updateHUD();
 }
 
+function showHitmarker(head) {
+  els.hitmarker.classList.add('show');
+  els.hitmarker.classList.toggle('head', head);
+  clearTimeout(hitmarkT);
+  hitmarkT = setTimeout(() => els.hitmarker.classList.remove('show'), 90);
+}
+
 function hurtBot(bot, dmg, head, weaponId) {
   bot.hp -= dmg;
   bot.alert = true;
   player.hits++;
   sfx.hit(head);
-  els.hitmarker.classList.add('show');
-  els.hitmarker.classList.toggle('head', head);
-  clearTimeout(hitmarkT);
-  hitmarkT = setTimeout(() => els.hitmarker.classList.remove('show'), 90);
+  showHitmarker(head);
   bot.flash(0.1);
   if (bot.hp <= 0) killBot(bot, head, weaponId);
 }
@@ -832,9 +868,22 @@ function killBot(bot, head, weaponId) {
   const award = WEAPONS[weaponId]?.killAward ?? 300;
   player.money = Math.min(ECON.cap, player.money + award);
   sfx.kill();
-  addKillfeed(`you ⟶ ${bot.name}${head ? ' [HEAD]' : ''}  +$${award}`);
+  feedKill(`${online ? net.name : 'you'} ⟶ ${bot.name}${head ? ' [HEAD]' : ''}  +$${award}`);
   updateHUD();
+  if (online) { checkRoundEnd(); return; }
   if (bots.every((b) => !b.alive) && state === 'live') endRound(true);
+}
+
+// Killfeed that fans out to everyone when the host scores a shared event.
+function feedKill(text, bad = false) {
+  addKillfeed(text, bad);
+  if (online && net.isHost) net.send('kf', { text, bad });
+}
+
+function checkRoundEnd() {
+  if (state !== 'live') return;
+  if (online) { if (net.isHost) checkOnlineRoundEnd(); return; }
+  if (spectating) checkSpectateRoundEnd();
 }
 
 // ---------------------------------------------------------------- bots
@@ -881,6 +930,25 @@ const botGeo = {
   gun: new THREE.BoxGeometry(0.09, 0.11, 0.85),
 };
 
+// Shared humanoid used by both bots and remote players, team-tinted.
+function makeFighterMesh(team) {
+  const g = new THREE.Group();
+  const torsoMat = new THREE.MeshLambertMaterial({ color: team === 'CT' ? 0x5d6e8e : 0x8f7a4e });
+  const legMat = new THREE.MeshLambertMaterial({ color: 0x4a4438 });
+  const headMat = new THREE.MeshLambertMaterial({ color: 0xc8987a });
+  const bandMat = new THREE.MeshLambertMaterial({ color: team === 'CT' ? 0x2a5ab0 : 0xb03a2a });
+  const gunMat = new THREE.MeshLambertMaterial({ color: 0x222220 });
+  const torso = new THREE.Mesh(botGeo.torso, torsoMat); torso.position.y = 1.2;
+  const legL = new THREE.Mesh(botGeo.leg, legMat); legL.position.set(-0.2, 0.35, 0);
+  const legR = new THREE.Mesh(botGeo.leg, legMat); legR.position.set(0.2, 0.35, 0);
+  const head = new THREE.Mesh(botGeo.head, headMat); head.position.y = 1.85;
+  const band = new THREE.Mesh(botGeo.band, bandMat); band.position.y = 1.95;
+  const gun = new THREE.Mesh(botGeo.gun, gunMat); gun.position.set(0.26, 1.32, -0.45);
+  for (const m of [torso, legL, legR, head, band, gun]) m.castShadow = true;
+  g.add(torso, legL, legR, head, band, gun);
+  return { group: g, torsoMat };
+}
+
 class Bot {
   constructor(name, x, z, team = 'T') {
     this.name = name;
@@ -901,34 +969,36 @@ class Bot {
     this.flashT = 0;
     this.walkT = Math.random() * 6;
 
-    const g = new THREE.Group();
-    this.torsoMat = new THREE.MeshLambertMaterial({ color: team === 'CT' ? 0x5d6e8e : 0x8f7a4e });
-    const legMat = new THREE.MeshLambertMaterial({ color: 0x4a4438 });
-    const headMat = new THREE.MeshLambertMaterial({ color: 0xc8987a });
-    const bandMat = new THREE.MeshLambertMaterial({ color: team === 'CT' ? 0x2a5ab0 : 0xb03a2a });
-    const gunMat = new THREE.MeshLambertMaterial({ color: 0x222220 });
-    const torso = new THREE.Mesh(botGeo.torso, this.torsoMat);
-    torso.position.y = 1.2;
-    const legL = new THREE.Mesh(botGeo.leg, legMat);
-    legL.position.set(-0.2, 0.35, 0);
-    const legR = new THREE.Mesh(botGeo.leg, legMat);
-    legR.position.set(0.2, 0.35, 0);
-    const head = new THREE.Mesh(botGeo.head, headMat);
-    head.position.y = 1.85;
-    const band = new THREE.Mesh(botGeo.band, bandMat);
-    band.position.y = 1.95;
-    const gun = new THREE.Mesh(botGeo.gun, gunMat);
-    gun.position.set(0.26, 1.32, -0.45);
-    for (const m of [torso, legL, legR, head, band, gun]) m.castShadow = true;
-    g.add(torso, legL, legR, head, band, gun);
+    const { group: g, torsoMat } = makeFighterMesh(team);
+    this.torsoMat = torsoMat;
     g.position.copy(this.pos);
     g.rotation.y = this.yaw;
     scene.add(g);
     this.mesh = g;
+    // network-puppet targets, used on non-host clients (host runs real AI)
+    this.netTarget = null;
+    this.netYaw = this.yaw;
+    this.netAlive = true;
   }
 
-  // Nearest live enemy: the player in normal play, opposing bots in spectate.
+  // Follower update for non-host clients: lerp toward the host's snapshot.
+  lerp(dt) {
+    if (this.netTarget) this.pos.lerp(this.netTarget, Math.min(1, dt * 12));
+    if (!this.netAlive && this.alive) this.die();
+    if (!this.alive) {
+      this.deadT += dt;
+      this.mesh.rotation.x = -Math.PI / 2 * Math.min(1, this.deadT * 4);
+      if (this.deadT > 2.5) this.mesh.position.y -= dt * 1.5;
+      return;
+    }
+    this.mesh.position.set(this.pos.x, 0, this.pos.z);
+    this.mesh.rotation.y = this.netYaw;
+  }
+
+  // Nearest live enemy: humans + enemy bots online, the player in normal play,
+  // opposing bots in spectate.
   getTarget() {
+    if (online) return nearestEnemyFor(this);
     if (!spectating) return player.alive ? player : null;
     let best = null;
     let bd = Infinity;
@@ -976,8 +1046,10 @@ class Bot {
     const chance = Math.max(0.08, 0.55 - dist * 0.0055);
     if (Math.random() < chance) {
       spawnTracer(from, target, 0xffb060);
-      if (isPlayer) damagePlayer(9 + Math.random() * 9);
-      else this.damageBot(tgt, 9 + Math.random() * 9);
+      const dmg = 9 + Math.random() * 9;
+      if (isPlayer) damagePlayer(dmg);
+      else if (tgt instanceof RemotePlayer) net.send('dmg', { target: tgt.id, amount: dmg, head: false, by: this.name });
+      else this.damageBot(tgt, dmg);
     } else {
       const miss = target.clone();
       miss.x += (Math.random() - 0.5) * 3;
@@ -995,8 +1067,8 @@ class Bot {
     if (tgt.hp <= 0) {
       tgt.die();
       spawnParticles({ x: tgt.pos.x, y: 1.2, z: tgt.pos.z }, 0x7a1f12, 6, 2.2);
-      addKillfeed(`${this.name} ⟶ ${tgt.name}`, tgt.team === 'CT');
-      checkSpectateRoundEnd();
+      feedKill(`${this.name} ⟶ ${tgt.name}`, tgt.team === 'CT');
+      checkRoundEnd();
     }
   }
 
@@ -1089,6 +1161,23 @@ let bots = [];
 
 function spawnBots() {
   for (const b of bots) b.dispose();
+  bots = [];
+  if (online) {
+    // host fills both teams up to teamSize; clients receive bots via snapshots
+    if (!net.isHost) return;
+    const humans = humansPerTeam();
+    const tBots = Math.max(0, NET.teamSize - humans.T);
+    const cBots = Math.max(0, NET.teamSize - humans.CT);
+    for (let i = 0; i < tBots; i++) {
+      const [x, z] = BOT_SPAWNS[i % BOT_SPAWNS.length];
+      bots.push(new Bot(`Bot_${BOT_NAMES[i % BOT_NAMES.length]}`, x, z, 'T'));
+    }
+    for (let i = 0; i < cBots; i++) {
+      const [x, z] = BOT_SPAWNS[i % BOT_SPAWNS.length];
+      bots.push(new Bot(`Bot_${CT_BOT_NAMES[i % CT_BOT_NAMES.length]}`, -x, -z, 'CT'));
+    }
+    return;
+  }
   bots = BOT_SPAWNS.map(([x, z], i) => new Bot(`Bot_${BOT_NAMES[i]}`, x, z, 'T'));
   // spectate mode fields a mirrored CT squad on the player's side of the map
   if (spectating) {
@@ -1121,10 +1210,12 @@ function startMatch() {
   startRound();
 }
 
-function startRound() {
-  round++;
-  player.pos.set(PLAYER_SPAWN.x, 0, PLAYER_SPAWN.z);
-  player.yaw = PLAYER_SPAWN.yaw;
+// Spawn/reset only the local player for a new round — shared by the host's
+// startRound and by clients reacting to the host's round change.
+function resetLocalPlayerForRound() {
+  const sp = online ? teamSpawn(myTeam, myTeamSlot()) : PLAYER_SPAWN;
+  player.pos.set(sp.x, 0, sp.z);
+  player.yaw = sp.yaw;
   player.pitch = 0;
   player.vy = 0;
   player.speedMult = 1;
@@ -1149,6 +1240,11 @@ function startRound() {
   }
   setZoom(false);
   buildViewModel(curInst().id);
+}
+
+function startRound() {
+  round++;
+  resetLocalPlayerForRound();
   spawnBots();
   if (spectating) {
     // no buy phase, no viewmodel — straight to the bot fight
@@ -1182,22 +1278,17 @@ function goLive() {
   banner('GO GO GO', '', false, 1.2);
 }
 
-function endRound(win) {
+function endRound(ctWon) {
   if (state !== 'live') return;
   state = 'over';
   tState = 3.2;
   survivedLast = player.alive;
-  if (win) {
-    ctScore++;
-    player.money = Math.min(ECON.cap, player.money + ECON.win);
-    banner('COUNTER-TERRORISTS WIN', `+$${ECON.win}`);
-    sfx.win();
-  } else {
-    tScore++;
-    player.money = Math.min(ECON.cap, player.money + ECON.loss);
-    banner('TERRORISTS WIN', `+$${ECON.loss}`, true);
-    sfx.lose();
-  }
+  if (ctWon) ctScore++; else tScore++;
+  // online: the win is the team's; show it from my team's point of view
+  const iWon = online ? ((ctWon ? 'CT' : 'T') === myTeam) : ctWon;
+  player.money = Math.min(ECON.cap, player.money + (iWon ? ECON.win : ECON.loss));
+  banner(ctWon ? 'COUNTER-TERRORISTS WIN' : 'TERRORISTS WIN', `+$${iWon ? ECON.win : ECON.loss}`, !iWon);
+  if (iWon) sfx.win(); else sfx.lose();
   updateHUD();
 }
 
@@ -1205,7 +1296,13 @@ function matchEnd() {
   state = 'matchend';
   document.exitPointerLock();
   const won = ctScore > tScore;
-  if (spectating) {
+  if (online) {
+    const iWon = (won ? 'CT' : 'T') === myTeam;
+    els.matchResult.textContent = iWon ? 'MATCH WON' : 'MATCH LOST';
+    const acc = player.shots ? Math.round((player.hits / player.shots) * 100) : 0;
+    els.matchStats.textContent = `Kills ${player.kills} · Deaths ${player.deaths} · Accuracy ${acc}%`;
+    els.againBtn.textContent = 'BACK TO LOBBY';
+  } else if (spectating) {
     els.matchResult.textContent = won ? 'CT WIN THE MATCH' : 'T WIN THE MATCH';
     els.matchStats.textContent = 'spectator match — bots only';
     els.againBtn.textContent = 'SPECTATE AGAIN';
@@ -1275,6 +1372,341 @@ function exitSpectate() {
   els.overlay.classList.remove('hidden');
 }
 
+// ---------------------------------------------------------------- multiplayer
+// Online play over Supabase Realtime. Each client owns its own player; the
+// host (earliest joiner) owns the shared world — bots, round state, timer,
+// scores — and streams it. Everyone is gated behind `online`, so the offline
+// game is untouched. Damage to a human is sent to that human; damage to a bot
+// is sent to the host; the host fans out killfeed + round outcomes.
+let online = false;
+let myTeam = 'CT';
+let teamMap = {};            // id -> 'CT' | 'T', assigned by the host
+const remotes = new Map();   // id -> RemotePlayer
+let netAcc = 0;
+let firedThisTick = false;
+let onlinePending = false;
+let lastWorldRound = 0;
+
+class RemotePlayer {
+  constructor(id, name, team) {
+    this.id = id;
+    this.name = name || 'Player';
+    this.team = team || 'T';
+    this.pos = new THREE.Vector3();
+    this.target = new THREE.Vector3();
+    this.yaw = 0;
+    this.hp = 100;
+    this.alive = true;
+    this.wid = 'rifle';
+    this.deadT = 0;
+    const { group } = makeFighterMesh(this.team);
+    this.mesh = group;
+    scene.add(this.mesh);
+  }
+
+  applySnapshot(d) {
+    if (d.name) this.name = d.name;
+    if (d.team) this.team = d.team;
+    this.target.set(d.x, d.y, d.z);
+    this.yaw = d.yaw;
+    this.hp = d.hp;
+    this.wid = d.wid || this.wid;
+    if (d.alive && !this.alive) { this.deadT = 0; this.mesh.rotation.x = 0; this.pos.copy(this.target); }
+    this.alive = d.alive;
+    if (d.fire) this.muzzle();
+  }
+
+  muzzle() {
+    const from = new THREE.Vector3(this.pos.x, 1.4, this.pos.z);
+    const dir = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+    const to = from.clone().addScaledVector(dir, 45);
+    const t = rayWalls(from, dir, 45);
+    if (t !== null) to.copy(from).addScaledVector(dir, t);
+    spawnTracer(from, to, WEAPONS[this.wid]?.energy || 0xffd27a);
+  }
+
+  update(dt) {
+    if (!this.alive) {
+      this.deadT += dt;
+      this.mesh.rotation.x = -Math.PI / 2 * Math.min(1, this.deadT * 4);
+      if (this.deadT > 2.5) this.mesh.position.y -= dt * 1.5;
+      return;
+    }
+    this.pos.lerp(this.target, Math.min(1, dt * 12));
+    this.mesh.position.set(this.pos.x, this.pos.y, this.pos.z);
+    this.mesh.rotation.set(0, this.yaw, 0);
+  }
+
+  dispose() { scene.remove(this.mesh); }
+}
+
+const enemyTeam = (t) => (t === 'CT' ? 'T' : 'CT');
+
+function teamAliveCount(team) {
+  let n = 0;
+  if (myTeam === team && player.alive) n++;
+  for (const rp of remotes.values()) if (rp.team === team && rp.alive) n++;
+  for (const b of bots) if (b.team === team && b.alive) n++;
+  return n;
+}
+
+function humansPerTeam() {
+  const c = { CT: 0, T: 0 };
+  for (const id in teamMap) c[teamMap[id]]++;
+  return c;
+}
+
+function myTeamSlot() {
+  const order = [...net.peers.values()]
+    .sort((a, b) => a.joinedAt - b.joinedAt || (a.id < b.id ? -1 : 1))
+    .filter((p) => teamMap[p.id] === myTeam);
+  return Math.max(0, order.findIndex((p) => p.id === net.myId));
+}
+
+function teamSpawn(team, slot = 0) {
+  const z = team === 'CT' ? 30 : -30;
+  const yaw = team === 'CT' ? 0 : Math.PI;
+  const x = Math.max(-20, Math.min(20, (slot - 1.5) * 5));
+  return { x, z, yaw };
+}
+
+// Host-side bot targeting: nearest living enemy among humans and bots.
+function nearestEnemyFor(b) {
+  let best = null;
+  let bd = Infinity;
+  if (player.alive && myTeam !== b.team) {
+    const d = (player.pos.x - b.pos.x) ** 2 + (player.pos.z - b.pos.z) ** 2;
+    if (d < bd) { bd = d; best = player; }
+  }
+  for (const rp of remotes.values()) {
+    if (!rp.alive || rp.team === b.team) continue;
+    const d = (rp.pos.x - b.pos.x) ** 2 + (rp.pos.z - b.pos.z) ** 2;
+    if (d < bd) { bd = d; best = rp; }
+  }
+  for (const o of bots) {
+    if (o === b || !o.alive || o.team === b.team) continue;
+    const d = (o.pos.x - b.pos.x) ** 2 + (o.pos.z - b.pos.z) ** 2;
+    if (d < bd) { bd = d; best = o; }
+  }
+  return best;
+}
+
+function checkOnlineRoundEnd() {
+  if (state !== 'live') return;
+  if (teamAliveCount('T') === 0) endRound(true);
+  else if (teamAliveCount('CT') === 0) endRound(false);
+}
+
+function sendNetState() {
+  net.send('p', {
+    name: net.name, team: myTeam,
+    x: +player.pos.x.toFixed(2), y: +player.pos.y.toFixed(2), z: +player.pos.z.toFixed(2),
+    yaw: +player.yaw.toFixed(2), pitch: +player.pitch.toFixed(2),
+    hp: player.hp, alive: player.alive, wid: curInst().id, fire: firedThisTick,
+  });
+  firedThisTick = false;
+  if (net.isHost) {
+    net.send('w', {
+      round, state, tState: +tState.toFixed(2), ctScore, tScore, teams: teamMap,
+      bots: bots.map((b) => ({
+        x: +b.pos.x.toFixed(2), z: +b.pos.z.toFixed(2), yaw: +b.yaw.toFixed(2),
+        a: b.alive, team: b.team, name: b.name,
+      })),
+    });
+  }
+}
+
+function syncPuppetBots(arr) {
+  if (!arr) return;
+  if (bots.length !== arr.length) {
+    for (const b of bots) b.dispose();
+    bots = arr.map((bd) => new Bot(bd.name, bd.x, bd.z, bd.team));
+  }
+  arr.forEach((bd, i) => {
+    const b = bots[i];
+    if (!b) return;
+    (b.netTarget ||= new THREE.Vector3()).set(bd.x, 0, bd.z);
+    b.netYaw = bd.yaw;
+    b.netAlive = bd.a;
+  });
+}
+
+// host follower entry: a non-host adopts the first world snapshot it receives
+function beginOnlineClient() {
+  online = true;
+  els.lobby.classList.add('hidden');
+  els.hud.classList.remove('hidden');
+  if (IS_TOUCH || touchMode) {
+    touchMode = true;
+    els.touchUI.classList.remove('hidden');
+    els.overlay.classList.add('hidden');
+  } else {
+    onlinePending = true;
+    els.overlayMsg.textContent = 'MATCH LIVE — CLICK TO PLAY';
+    els.overlay.classList.remove('hidden');
+  }
+}
+
+function setupNetHandlers() {
+  net.on('roster', (peers) => {
+    const ids = new Set(peers.map((p) => p.id));
+    for (const [id, rp] of remotes) if (!ids.has(id)) { rp.dispose(); remotes.delete(id); }
+    if (!els.lobby.classList.contains('hidden')) {
+      renderLobbyRoster(peers);
+      els.lobbyStart.classList.toggle('hidden', !net.isHost);
+    }
+  });
+
+  net.on('p', (d, from) => {
+    if (!online) return;
+    let rp = remotes.get(from);
+    if (!rp) { rp = new RemotePlayer(from, d.name, d.team); remotes.set(from, rp); }
+    rp.applySnapshot(d);
+  });
+
+  net.on('w', (d) => {
+    if (net.isHost) return; // host is the source of truth
+    teamMap = d.teams || teamMap;
+    myTeam = teamMap[net.myId] || myTeam;
+    if (!online) beginOnlineClient();
+    const prevState = state;
+    const prevCt = ctScore;
+    round = d.round; ctScore = d.ctScore; tScore = d.tScore;
+    state = d.state; tState = d.tState;
+    syncPuppetBots(d.bots);
+    if (d.round !== lastWorldRound) {
+      lastWorldRound = d.round;
+      survivedLast = prevState === 'over';
+      resetLocalPlayerForRound();
+    }
+    if (prevState !== state) {
+      if (state === 'buy') { openBuyMenu(true); banner(`ROUND ${round}`, 'buy your gear', false, 1.8); }
+      else if (state === 'live') { openBuyMenu(false); banner('GO GO GO', '', false, 1.2); }
+      else if (state === 'over') {
+        const ctWon = ctScore > prevCt;
+        survivedLast = player.alive;
+        const iWon = (ctWon ? 'CT' : 'T') === myTeam;
+        player.money = Math.min(ECON.cap, player.money + (iWon ? ECON.win : ECON.loss));
+        banner(ctWon ? 'COUNTER-TERRORISTS WIN' : 'TERRORISTS WIN', `+$${iWon ? ECON.win : ECON.loss}`, !iWon);
+        if (iWon) sfx.win(); else sfx.lose();
+      } else if (state === 'matchend') { matchEnd(); }
+    }
+    updateHUD();
+  });
+
+  net.on('dmg', (d) => {
+    if (d.target !== net.myId) return;
+    damagePlayer(d.amount, d.by, d.head);
+  });
+
+  net.on('bothit', (d) => {
+    if (!net.isHost) return;
+    const bot = bots[d.bi];
+    if (!bot || !bot.alive) return;
+    bot.hp -= d.amount;
+    bot.alert = true;
+    bot.flash(0.1);
+    if (bot.hp <= 0) {
+      bot.die();
+      spawnParticles({ x: bot.pos.x, y: 1.2, z: bot.pos.z }, 0x7a1f12, 6, 2.2);
+      feedKill(`${d.by} ⟶ ${bot.name}${d.head ? ' [HEAD]' : ''}`);
+      checkRoundEnd();
+    }
+  });
+
+  net.on('died', (d) => {
+    const rp = remotes.get(d.id);
+    if (rp) rp.alive = false;
+  });
+
+  net.on('kf', (d) => addKillfeed(d.text, d.bad));
+}
+
+// ---- lobby UI ----
+function randomName() {
+  const a = ['Ace', 'Wolf', 'Nova', 'Echo', 'Vex', 'Rook', 'Jet', 'Halo'];
+  return a[Math.floor(Math.random() * a.length)] + Math.floor(Math.random() * 90 + 10);
+}
+
+function openLobby() {
+  els.overlay.classList.add('hidden');
+  els.lobby.classList.remove('hidden');
+  $('lobbyForm').classList.remove('hidden');
+  els.lobbyJoin.disabled = false;
+  els.lobbyName.value = els.lobbyName.value || randomName();
+  els.lobbyStatus.textContent = '';
+  els.lobbyStatus.classList.remove('err');
+  els.lobbyRoster.innerHTML = '';
+  els.lobbyStart.classList.add('hidden');
+}
+
+function renderLobbyRoster(peers) {
+  const order = [...peers].sort((a, b) => a.joinedAt - b.joinedAt || (a.id < b.id ? -1 : 1));
+  els.lobbyRoster.innerHTML = order.map((p, i) => {
+    const team = teamMap[p.id] || (i % 2 === 0 ? 'CT' : 'T');
+    const tags = [team, p.id === net.myId ? 'YOU' : '', i === 0 ? 'HOST' : ''].filter(Boolean).join(' · ');
+    return `<div class="row"><span>${p.name}</span><span class="tag">${tags}</span></div>`;
+  }).join('');
+}
+
+async function lobbyConnect() {
+  const name = (els.lobbyName.value || 'Player').slice(0, 14);
+  const room = ((els.lobbyRoom.value || 'lobby').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 16)) || 'lobby';
+  els.lobbyStatus.classList.remove('err');
+  els.lobbyStatus.textContent = 'Connecting…';
+  els.lobbyJoin.disabled = true;
+  try {
+    await net.connect(room, name);
+    els.lobbyStatus.textContent = `Connected to “${room}”. ${net.isHost ? 'You are the host — press START when ready.' : 'Waiting for the host to start…'}`;
+    $('lobbyForm').classList.add('hidden');
+    els.lobbyStart.classList.toggle('hidden', !net.isHost);
+    renderLobbyRoster([...net.peers.values()]);
+  } catch (e) {
+    els.lobbyStatus.classList.add('err');
+    els.lobbyStatus.textContent = e.message;
+    els.lobbyJoin.disabled = false;
+  }
+}
+
+function assignTeams() {
+  const order = [...net.peers.values()].sort((a, b) => a.joinedAt - b.joinedAt || (a.id < b.id ? -1 : 1));
+  teamMap = {};
+  order.forEach((p, i) => { teamMap[p.id] = i % 2 === 0 ? 'CT' : 'T'; });
+  myTeam = teamMap[net.myId] || 'CT';
+}
+
+function hostStartOnline() {
+  if (!net.isHost) return;
+  assignTeams();
+  online = true;
+  lastWorldRound = 0;
+  els.lobby.classList.add('hidden');
+  if (IS_TOUCH || touchMode) {
+    touchMode = true;
+    els.touchUI.classList.remove('hidden');
+  } else {
+    canvas.requestPointerLock();
+  }
+  startMatch();
+}
+
+function leaveOnline() {
+  online = false;
+  onlinePending = false;
+  for (const rp of remotes.values()) rp.dispose();
+  remotes.clear();
+  net.disconnect();
+  state = 'menu';
+  for (const b of bots) b.dispose();
+  bots = [];
+  els.hud.classList.add('hidden');
+  els.touchUI.classList.add('hidden');
+  els.lobby.classList.add('hidden');
+  els.matchOverlay.classList.add('hidden');
+  els.overlayMsg.textContent = JOIN_MSG;
+  els.overlay.classList.remove('hidden');
+}
+
 // ---------------------------------------------------------------- HUD
 const textCache = {};
 function setText(el, v) {
@@ -1292,7 +1724,9 @@ function updateHUD() {
   setText(els.scoreCT, `CT ${ctScore}`);
   setText(els.scoreT, `${tScore} T`);
   setText(els.roundLabel, `ROUND ${round}`);
-  if (spectating) {
+  if (online) {
+    setText(els.enemies, `ENEMIES ${teamAliveCount(enemyTeam(myTeam))} · ALLIES ${teamAliveCount(myTeam)}`);
+  } else if (spectating) {
     const ct = bots.filter((b) => b.alive && b.team === 'CT').length;
     const t = bots.filter((b) => b.alive && b.team === 'T').length;
     setText(els.enemies, `ALIVE · CT ${ct} — ${t} T`);
@@ -1383,10 +1817,13 @@ function purchase(i) {
 function renderScoreboard() {
   const botRows = bots.map((b) => `<tr class="${b.alive ? '' : 'dead'}"><td>${b.name}</td><td>${b.team}</td><td>${b.alive ? 'alive' : 'dead'}</td></tr>`).join('');
   const youRow = spectating ? ''
-    : `<tr class="you"><td>you · ${player.kills}K / ${player.deaths}D</td><td>CT</td><td>${player.alive ? 'alive' : 'dead'}</td></tr>`;
+    : `<tr class="you"><td>${online ? net.name : 'you'} · ${player.kills}K / ${player.deaths}D</td><td>${online ? myTeam : 'CT'}</td><td>${player.alive ? 'alive' : 'dead'}</td></tr>`;
+  const remoteRows = online
+    ? [...remotes.values()].map((r) => `<tr class="${r.alive ? '' : 'dead'}"><td>${r.name}</td><td>${r.team}</td><td>${r.alive ? 'alive' : 'dead'}</td></tr>`).join('')
+    : '';
   els.scoreboard.innerHTML = `<h2>CUBESTRIKE — CT ${ctScore} : ${tScore} T</h2>
     <table><tr><th>PLAYER</th><th>TEAM</th><th>STATUS</th></tr>
-    ${youRow}${botRows}</table>`;
+    ${youRow}${remoteRows}${botRows}</table>`;
 }
 
 // ---------------------------------------------------------------- touch controls
@@ -1574,6 +2011,12 @@ document.addEventListener('keyup', (e) => {
 // ---------------------------------------------------------------- pointer lock / overlays
 els.overlay.addEventListener('click', () => {
   sfx.unlock();
+  if (onlinePending) { // a client clicking into a live online match
+    onlinePending = false;
+    els.overlay.classList.add('hidden');
+    canvas.requestPointerLock();
+    return;
+  }
   if (IS_TOUCH || touchMode) { startTouchPlay(); return; }
   canvas.requestPointerLock();
 });
@@ -1581,6 +2024,7 @@ els.overlay.addEventListener('click', () => {
 els.againBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   sfx.unlock();
+  if (online) { leaveOnline(); return; }
   if (spectating) { enterSpectate(); return; }
   if (IS_TOUCH || touchMode) { startTouchPlay(); return; }
   canvas.requestPointerLock();
@@ -1594,12 +2038,25 @@ els.spectateBtn.addEventListener('click', (e) => {
 els.camBtn.addEventListener('click', cycleSpecCam);
 els.exitBtn.addEventListener('click', exitSpectate);
 
+// online lobby wiring
+els.onlineBtn.addEventListener('click', (e) => { e.stopPropagation(); sfx.unlock(); openLobby(); });
+els.lobbyJoin.addEventListener('click', (e) => { e.stopPropagation(); lobbyConnect(); });
+els.lobbyStart.addEventListener('click', (e) => { e.stopPropagation(); hostStartOnline(); });
+els.lobbyBack.addEventListener('click', (e) => {
+  e.stopPropagation();
+  net.disconnect();
+  els.lobby.classList.add('hidden');
+  els.overlay.classList.remove('hidden');
+});
+setupNetHandlers();
+if (net.configured()) els.onlineBtn.classList.remove('hidden');
+
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
   if (locked) {
     els.overlay.classList.add('hidden');
     els.matchOverlay.classList.add('hidden');
-    if (state === 'menu' || state === 'matchend') startMatch();
+    if (!online && (state === 'menu' || state === 'matchend')) startMatch();
     paused = false;
   } else if (state !== 'menu' && state !== 'matchend') {
     paused = true;
@@ -1628,20 +2085,39 @@ function loop(now) {
   } else if (!paused) {
     if (spectating) updateSpectateCam(dt);
     else updatePlayer(dt);
+
+    if (online) {
+      netAcc += dt;
+      if (netAcc >= 1 / NET.tickHz) { netAcc -= 1 / NET.tickHz; sendNetState(); }
+      for (const rp of remotes.values()) rp.update(dt);
+    }
+
+    // the host (or any offline game) simulates bots and drives the round clock;
+    // online clients follow the host's snapshots instead
+    const hostSim = !online || net.isHost;
+
     if (state === 'buy') {
-      tState -= dt;
-      if (tState <= 0) goLive();
+      if (hostSim) { tState -= dt; if (tState <= 0) goLive(); }
     } else if (state === 'live') {
-      for (const bot of bots) bot.update(dt);
-      tState -= dt;
-      if (tState <= 0) endRound(true); // defenders held the site
+      if (hostSim) {
+        for (const bot of bots) bot.update(dt);
+        if (online) checkOnlineRoundEnd();
+        tState -= dt;
+        if (tState <= 0) endRound(true); // defenders held the site
+      } else {
+        for (const bot of bots) bot.lerp(dt);
+      }
     } else if (state === 'over') {
-      // spectate keeps survivors animated between rounds; play mode freezes them
-      for (const bot of bots) { if (spectating || !bot.alive) bot.update(dt); }
-      tState -= dt;
-      if (tState <= 0) {
-        if (ctScore >= MATCH_WIN_ROUNDS || tScore >= MATCH_WIN_ROUNDS) matchEnd();
-        else startRound();
+      if (hostSim) {
+        // spectate keeps survivors animated between rounds; play mode freezes them
+        for (const bot of bots) { if (spectating || !bot.alive) bot.update(dt); }
+        tState -= dt;
+        if (tState <= 0) {
+          if (ctScore >= MATCH_WIN_ROUNDS || tScore >= MATCH_WIN_ROUNDS) matchEnd();
+          else startRound();
+        }
+      } else {
+        for (const bot of bots) bot.lerp(dt);
       }
     }
     updateTimer();

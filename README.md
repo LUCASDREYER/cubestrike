@@ -49,6 +49,41 @@ There are also console cheats in the spirit of `sv_cheats 1` — open devtools a
 | Tab (hold) | Scoreboard |
 | Esc | Pause |
 
+## Online multiplayer
+
+CUBESTRIKE can run real CT-vs-T matches over the network, with bots filling any
+empty slots. It uses [Supabase Realtime](https://supabase.com/realtime) (a hosted
+service) for messaging, so there's still **no server to run** — just paste two keys.
+
+**Setup (one time, free):**
+
+1. Create a free project at [supabase.com](https://supabase.com).
+2. In the dashboard go to **Project Settings → API** and copy the **Project URL**
+   and the **anon / public** API key (the anon key is safe to ship in client code —
+   it only grants Realtime access here, not database access).
+3. Paste both into the `NET` block in `js/config.js`:
+   ```js
+   export const NET = {
+     supabaseUrl: 'https://YOURPROJECT.supabase.co',
+     supabaseKey: 'eyJ...your-anon-key...',
+     // ...
+   };
+   ```
+4. Reload. A **PLAY ONLINE** button appears on the menu (it stays hidden until the
+   keys are filled in).
+
+**Playing:** click **PLAY ONLINE**, pick a callsign and a room name, and **CONNECT**.
+Everyone who types the same room name lands in the same lobby. The first person to
+join is the **host**; they press **START MATCH** and everyone drops in. Teams are
+split automatically and bots top each side up to `teamSize` (default 5).
+
+**How the netcode works:** each client owns its own player and broadcasts a snapshot
+~12×/sec. The host additionally owns the shared world — bots, the round state machine,
+the timer, and the score — and streams it for everyone else to follow. Hits on a
+player are sent to that player; hits on a bot are sent to the host; the host fans out
+the killfeed and round outcomes. It's client-trusting (fine for friends; not
+cheat-proof). Tunables live in `NET` in `js/config.js`.
+
 ## Run it locally
 
 It's ES modules, so it needs any static file server (opening `index.html` directly via
@@ -74,8 +109,10 @@ Then open `http://localhost:8080`.
 
 - [ ] Bomb plant / defuse objective
 - [ ] Radar
-- [ ] Friendly CT bots
-- [ ] WebRTC multiplayer (ambitious, but the hitscan model is server-friendly)
+- [x] Friendly CT bots (spectate mode + online bot-fill)
+- [x] Online multiplayer (Supabase Realtime, host-authoritative world)
+- [ ] Server-authoritative hit validation (anti-cheat)
+- [ ] Voice / text chat
 
 ## A note on the homage
 
